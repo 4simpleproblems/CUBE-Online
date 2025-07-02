@@ -624,6 +624,7 @@
 
                     if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
                         player.onGround = true;
+                        player.isJumping = false; // Reset jump state upon landing
                     }
                 }
             });
@@ -684,7 +685,12 @@
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
-                staminaDrainRate: 25, staminaRegenRate: 15
+                staminaDrainRate: 25, staminaRegenRate: 15,
+                // New properties for variable jump
+                isJumping: false,
+                jumpTime: 0,
+                maxJumpTime: 250, // Max duration of sustained jump in ms
+                jumpStaminaDrainRate: 50 // Stamina per second for sustained jump
             });
         }
 
@@ -835,12 +841,10 @@
 
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
 
-            // Regenerate stamina only if not trying to sprint (key is up) and not currently sprinting
             if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
 
-            // Update the UI
             const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
             staminaBar.style.width = `${staminaPercentage}%`;
         }
@@ -857,30 +861,51 @@
             }
         }
 
-        function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
-        function handleKeyUp(e) { keys[e.code] = false; }
+        function handleKeyDown(e) { 
+            keys[e.code] = true; 
+            handleSinglePressInput(e); 
+        }
+        function handleKeyUp(e) {
+            keys[e.code] = false;
+            // NEW: Stop jump ascent when key is released
+            const myPlayer = players.get(myPeerId);
+            if (myPlayer && (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp')) {
+                myPlayer.isJumping = false;
+            }
+        }
         
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
 
             const body = myPlayer.body;
+
+            // --- Sustained Jump Logic ---
+            const isHoldingJump = keys['Space'] || keys['KeyW'] || keys['ArrowUp'];
+            if (myPlayer.isJumping && isHoldingJump && myPlayer.currentStamina > 0 && myPlayer.jumpTime < myPlayer.maxJumpTime) {
+                // Apply a continuous force to go higher, counteracting gravity
+                Body.applyForce(body, body.position, { x: 0, y: -0.0045 }); // This value may need tuning
+                myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.jumpStaminaDrainRate * (deltaTime / 1000));
+                myPlayer.jumpTime += deltaTime;
+            } else {
+                // Stop the jump ascent if key is released, time runs out, or no stamina
+                myPlayer.isJumping = false;
+            }
+
+            // --- Movement Logic ---
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
-
-            myPlayer.isSprinting = false; // Reset every frame
+            myPlayer.isSprinting = false; 
 
             if (myPlayer.isTransformed) {
-                 const moveForce = 0.001;
+                const moveForce = 0.001;
                 if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
                 if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
-                if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
-                if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
             } else {
                 let moveSpeed = 5;
 
                 if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
-                    moveSpeed = 9; // Faster speed
+                    moveSpeed = 9;
                     myPlayer.isSprinting = true;
                     myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
                     
@@ -890,7 +915,6 @@
                         createWindParticle(myPlayer.body.position, myPlayer.direction, true);
                         sprintParticleTimer = 0;
                     }
-
                 }
 
                 if (keys['KeyA'] || keys['ArrowLeft']) {
@@ -908,13 +932,15 @@
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
-            const body = myPlayer.body;
 
+            // --- Jump Initiation ---
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     // Reduced jump force
-                     Body.applyForce(body, body.position, { x: 0, y: -0.15 });
+                     // Initial small hop - a light tap on the key gives this minimum jump. No stamina cost.
+                     Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: -7 });
                      myPlayer.onGround = false;
+                     myPlayer.isJumping = true; // Allows the sustained jump to check this flag
+                     myPlayer.jumpTime = 0;
                 }
             }
             
@@ -945,11 +971,11 @@
             let idleFrame = 0;
             let walkFrame = 0;
             let animTimer = 0;
-            const loopTime = 50; // Run loop every 50ms
+            const loopTime = 50; 
 
             const IDLE_FPS = 2;
             const WALK_FPS = 8;
-            const SPRINT_FPS = 14; // Faster animation for sprinting
+            const SPRINT_FPS = 14;
 
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
@@ -958,7 +984,6 @@
                     if (!player.body || player.isTransformed) continue;
                     
                     const speed = Vector.magnitude(player.body.velocity);
-                    // UPDATED: Walking animation is now based on speed, not being on the ground
                     player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
 
@@ -980,16 +1005,15 @@
                         } else {
                             idleFrame = (idleFrame + 1) % 2;
                         }
-                        animTimer = 0; // Reset timer only when frame changes
+                        animTimer = 0;
                     }
 
                     if (player.isSprinting || player.isWalking) {
                         sprite.src = `../images/player-walk${walkFrame + 1}.png`;
-                    } else { // isIdle
+                    } else { 
                         sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
-                    // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
                         createWindParticle(player.body.position, player.direction, true);
