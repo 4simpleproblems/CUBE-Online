@@ -351,17 +351,20 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            transition: transform 0.1s;
+            transition: transform 0.1s, background-color 0.2s;
+        }
+        #joystick-nub.active {
+            background-color: var(--stamina-bar-color);
         }
         #action-buttons-zone {
             right: 20px;
             display: flex;
-            gap: 20px;
+            gap: 15px;
             align-items: flex-end;
         }
-        .action-btn {
-            width: 70px;
-            height: 70px;
+        .mobile-action-btn {
+            width: 60px;
+            height: 60px;
             background: rgba(0,0,0,0.2);
             border: 2px solid rgba(0,0,0,0.3);
             border-radius: 50%;
@@ -369,20 +372,29 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 1.2rem;
+            font-size: 0.8rem;
             color: white;
+            text-align: center;
+            line-height: 1.2;
         }
-        .action-btn:active {
+        .mobile-action-btn:active {
             background: rgba(0,0,0,0.4);
+        }
+        #mobile-lock-btn.active {
+            background-color: var(--stamina-bar-color);
+            border-color: #1e7e34;
         }
 
         .off-screen-indicator {
             position: absolute;
             z-index: 26;
-            display: flex;
-            align-items: center;
+            width: 40px;
+            height: 40px;
             pointer-events: none;
-            transition: opacity 0.2s;
+            transition: opacity 0.2s, top 0.1s linear, left 0.1s linear;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
         .off-screen-arrow {
             width: 0; 
@@ -391,10 +403,11 @@
             border-right: 8px solid transparent;
             border-top: 12px solid var(--off-screen-indicator-color);
             transform-origin: center center;
+            transition: transform 0.1s linear;
         }
         .off-screen-name {
             position: absolute;
-            top: 20px; /* Position below the arrow */
+            top: 25px; /* Position below the arrow */
             font-size: 12px;
             font-weight: bold;
             color: white;
@@ -402,6 +415,8 @@
             padding: 2px 6px;
             border-radius: 10px;
             white-space: nowrap;
+            transform: translateX(-50%);
+            left: 50%;
         }
     </style>
 </head>
@@ -427,8 +442,9 @@
                 <div id="joystick-nub"></div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
-                <div id="transform-btn" class="action-btn">B</div>
-                <div id="jump-btn" class="action-btn">A</div>
+                <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
+                <div id="mobile-explode-btn" class="mobile-action-btn">EXPLODE</div>
+                <div id="mobile-lock-btn" class="mobile-action-btn">LOCK<br>ANGLE</div>
             </div>
         </div>
 
@@ -488,6 +504,7 @@
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
+        const SESSION_KEY = 'humanSimulatorSession';
 
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
@@ -504,14 +521,86 @@
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
 
+        // --- UI Input Elements ---
+        const usernameInput = document.getElementById('username');
+        const usernameJoinInput = document.getElementById('username-join');
+        const lobbyCodeInput = document.getElementById('lobby-code-input');
+        const createLobbyBtn = document.getElementById('create-lobby-btn');
+        const showJoinViewBtn = document.getElementById('show-join-view-btn');
+        const joinLobbyBtn = document.getElementById('join-lobby-btn');
+        const backToMainBtn = document.getElementById('back-to-main-btn');
+
         // --- Event Listeners ---
-        document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
-        document.getElementById('join-lobby-btn').addEventListener('click', () => handleLobbyAction(false));
-        document.getElementById('show-join-view-btn').addEventListener('click', showJoinView);
-        document.getElementById('back-to-main-btn').addEventListener('click', showMainView);
+        createLobbyBtn.addEventListener('click', () => handleLobbyAction(true));
+        joinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
+        showJoinViewBtn.addEventListener('click', showJoinView);
+        backToMainBtn.addEventListener('click', showMainView);
         document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
+
+        // --- Initial Load ---
+        window.addEventListener('load', checkForSession);
+
+
+        function checkForSession() {
+            const sessionDataString = sessionStorage.getItem(SESSION_KEY);
+            if (sessionDataString) {
+                const sessionData = JSON.parse(sessionDataString);
+                isHost = sessionData.isHost;
+                lobbyCode = sessionData.lobbyCode;
+                
+                usernameInput.value = sessionData.username;
+                usernameJoinInput.value = sessionData.username;
+                lobbyCodeInput.value = sessionData.lobbyCode;
+
+                lockLoginInputs();
+                
+                showLoadingScreen(isHost);
+                document.getElementById('loading-title').textContent = 'Reconnecting...';
+                initializePeer(sessionData.username, isHost ? LOBBY_PREFIX + lobbyCode : null);
+                return;
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            const urlLobbyCode = params.get('lobby');
+            if(urlLobbyCode) {
+                lobbyCodeInput.value = urlLobbyCode;
+                showJoinView();
+            }
+        }
+
+        function lockLoginInputs() {
+            usernameInput.disabled = true;
+            usernameJoinInput.disabled = true;
+            lobbyCodeInput.disabled = true;
+            createLobbyBtn.disabled = true;
+            showJoinViewBtn.disabled = true;
+            joinLobbyBtn.disabled = true;
+            backToMainBtn.disabled = true;
+        }
+
+        function unlockLoginInputs() {
+            usernameInput.disabled = false;
+            usernameJoinInput.disabled = false;
+            lobbyCodeInput.disabled = false;
+            createLobbyBtn.disabled = false;
+            showJoinViewBtn.disabled = false;
+            joinLobbyBtn.disabled = false;
+            backToMainBtn.disabled = false;
+        }
+
+        function updateUrlWithLobbyCode(code) {
+            const url = new URL(window.location);
+            url.searchParams.set('lobby', code);
+            url.searchParams.delete('username');
+            url.searchParams.delete('host');
+            history.pushState({}, '', url);
+        }
+
+        function clearUrlParams() {
+            history.pushState({}, '', window.location.pathname);
+        }
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
@@ -525,12 +614,18 @@
                 if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
             
+            lockLoginInputs();
+            const sessionData = { username, lobbyCode, isHost };
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+            updateUrlWithLobbyCode(lobbyCode);
+
             showLoadingScreen(isCreating);
             initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
         // --- PeerJS Initialization & Lobby Logic ---
         function initializePeer(username, requestedId) {
+            if (peer) peer.destroy();
             peer = new Peer(requestedId, {});
             peer.on('open', id => {
                 myPeerId = id;
@@ -616,6 +711,10 @@
             gameUi.classList.add('hidden');
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
+            
+            sessionStorage.removeItem(SESSION_KEY);
+            clearUrlParams();
+            unlockLoginInputs();
             showMainView();
         }
 
@@ -655,7 +754,7 @@
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
-                updatePlayerLayering(); // New call for layering
+                updatePlayerLayering(); 
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
@@ -712,7 +811,7 @@
             
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: -1 }, // Players are in a non-colliding group
+                collisionFilter: { group: -1 },
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
@@ -727,7 +826,6 @@
                 </div>
                 <div class="player-name">${username}</div>
             `;
-            // If not the initial spawn (i.e., a respawn), start transparent
             if (!isInitialSpawn) {
                 playerEl.style.opacity = '0';
             }
@@ -749,12 +847,12 @@
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
                 staminaDrainRate: 25, staminaRegenRate: 15,
-                lastMoveTimestamp: Date.now(), // For layering
-                sideLock: false // For side locking
+                lastMoveTimestamp: Date.now(),
+                sideLock: false,
+                sprintModeActive: false
             };
             players.set(peerId, player);
 
-            // Force the opacity to 1 after a short delay to trigger the transition
              if (!isInitialSpawn) {
                  setTimeout(() => {
                      playerEl.style.opacity = '1';
@@ -785,10 +883,6 @@
 
                 if (player.direction !== data.direction) {
                     player.direction = data.direction || 'right';
-                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
-                    if (spriteWrapper) {
-                        spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
-                    }
                 }
 
                 if (player.isTransformed !== data.isTransformed) {
@@ -817,7 +911,6 @@
             }
         }
 
-        // New function to handle player z-index layering
         function updatePlayerLayering() {
             const sortedPlayers = Array.from(players.values()).sort((a, b) => {
                 return a.lastMoveTimestamp - b.lastMoveTimestamp;
@@ -825,7 +918,6 @@
 
             sortedPlayers.forEach((player, index) => {
                 if (player.element) {
-                    // Start z-index from 10. Player who moved most recently (highest timestamp) will get the lowest z-index
                     player.element.style.zIndex = 10 + index;
                 }
             });
@@ -892,46 +984,73 @@
 
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-            const padding = 40; 
+            const indicatorPositions = [];
+
+            for (const p of players.values()) {
+                if (p.indicator) p.indicator.style.opacity = '0';
+            }
 
             for (const otherPlayer of players.values()) {
-                if (otherPlayer.peerId === myPeerId || !otherPlayer.body) continue;
+                if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) continue;
 
+                const myPos = myPlayer.body.position;
                 const targetPos = otherPlayer.body.position;
-                const screenX = (targetPos.x - camera.x) + viewportWidth / 2;
-                const screenY = (targetPos.y - camera.y) + viewportHeight / 2;
+                const screenX = (targetPos.x - camera.x) * camera.scale + viewportWidth / 2;
+                const screenY = (targetPos.y - camera.y) * camera.scale + viewportHeight / 2;
 
-                const isOffScreen = screenX < padding || screenX > viewportWidth - padding || screenY < padding || screenY > viewportHeight - padding;
+                const isOffScreen = screenX < 0 || screenX > viewportWidth || screenY < 0 || screenY > viewportHeight;
 
-                if (isOffScreen && !otherPlayer.isDead) {
-                    otherPlayer.indicator.style.opacity = '1';
+                if (isOffScreen) {
+                    const distance = Vector.magnitude(Vector.sub(targetPos, myPos));
+                    const padding = 40 + Math.min(100, distance / 100);
 
                     const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
                     const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
-                    
-                    const angle = Math.atan2(targetPos.y - camera.y, targetPos.x - camera.x);
-                    
-                    otherPlayer.indicator.style.left = `${clampedX}px`;
-                    otherPlayer.indicator.style.top = `${clampedY}px`;
-                    otherPlayer.indicator.style.transform = `translate(-50%, -50%) rotate(${angle + Math.PI / 2}rad)`;
-                } else {
-                    otherPlayer.indicator.style.opacity = '0';
+                    const angle = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
+
+                    indicatorPositions.push({
+                        player: otherPlayer,
+                        x: clampedX,
+                        y: clampedY,
+                        angle: angle,
+                    });
                 }
             }
+
+            const STACK_OFFSET = 45; 
+            const STACK_RADIUS = 30; 
+            for (let i = 0; i < indicatorPositions.length; i++) {
+                const current = indicatorPositions[i];
+                let stackCount = 0;
+                for (let j = 0; j < i; j++) {
+                    const other = indicatorPositions[j];
+                    const distBetween = Math.hypot(current.x - other.x, current.y - other.y);
+                    if (distBetween < STACK_RADIUS) {
+                        stackCount++;
+                    }
+                }
+                const finalY = current.y + (stackCount * STACK_OFFSET);
+
+                const indicator = current.player.indicator;
+                const arrow = indicator.querySelector('.off-screen-arrow');
+                indicator.style.opacity = '1';
+                indicator.style.left = `${current.x}px`;
+                indicator.style.top = `${finalY}px`;
+                indicator.style.transform = `translate(-50%, -50%)`;
+                arrow.style.transform = `rotate(${current.angle + Math.PI / 2}rad)`;
+            }
         }
+
 
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
 
-            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'] || myPlayer.sprintModeActive;
 
-            // Regenerate stamina only if not trying to sprint (key is up) and not currently sprinting
             if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
-
-            // Update the UI
             const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
             staminaBar.style.width = `${staminaPercentage}%`;
         }
@@ -956,14 +1075,14 @@
             if (!myPlayer || myPlayer.isDead) return;
 
             const body = myPlayer.body;
-            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+            const isKeyboardSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
 
             if (isMovingHorizontally) {
                 myPlayer.lastMoveTimestamp = Date.now();
             }
 
-            myPlayer.isSprinting = false; // Reset every frame
+            myPlayer.isSprinting = false; 
 
             if (myPlayer.isTransformed) {
                 const moveForce = 0.001;
@@ -974,8 +1093,8 @@
             } else {
                 let moveSpeed = 5;
 
-                if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
-                    moveSpeed = 9; // Faster speed
+                if ((isKeyboardSprinting || myPlayer.sprintModeActive) && myPlayer.currentStamina > 0 && isMovingHorizontally) {
+                    moveSpeed = 9;
                     myPlayer.isSprinting = true;
                     myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
                     
@@ -985,7 +1104,11 @@
                         createWindParticle(myPlayer.body.position, myPlayer.direction, true);
                         sprintParticleTimer = 0;
                     }
-
+                    
+                    if (myPlayer.currentStamina <= 0) {
+                        myPlayer.sprintModeActive = false;
+                        document.getElementById('joystick-nub').classList.remove('active');
+                    }
                 }
 
                 if (keys['KeyA'] || keys['ArrowLeft']) {
@@ -1001,18 +1124,13 @@
         }
 
         function handleSinglePressInput(e) {
+            if (e.repeat) return;
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
-            const body = myPlayer.body;
-
-            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
-                if (!isTransformed && myPlayer.onGround) {
-                    // Reduced jump force
-                    Body.applyForce(body, body.position, { x: 0, y: -0.1 });
-                    myPlayer.onGround = false;
-                }
-            }
             
+            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+                performJump();
+            }
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
@@ -1020,12 +1138,107 @@
                 respawnPlayer();
             }
             if (e.code === 'KeyL') {
-                myPlayer.sideLock = !myPlayer.sideLock; // Toggle side lock
+                toggleAngleLock();
+            }
+        }
+
+        function performJump() {
+            const myPlayer = players.get(myPeerId);
+            if (myPlayer && !myPlayer.isDead && !isTransformed && myPlayer.onGround) {
+                Body.applyForce(myPlayer.body, myPlayer.body.position, { x: 0, y: -0.1 });
+                myPlayer.onGround = false;
+            }
+        }
+
+        function toggleAngleLock() {
+            const myPlayer = players.get(myPeerId);
+            if (myPlayer) {
+                myPlayer.sideLock = !myPlayer.sideLock;
+                const lockButton = document.getElementById('mobile-lock-btn');
+                if (lockButton) {
+                    lockButton.classList.toggle('active', myPlayer.sideLock);
+                }
             }
         }
 
         function setupMobileControls() {
-            // Mobile controls logic can be expanded here
+            const joystickZone = document.getElementById('joystick-zone');
+            const joystickNub = document.getElementById('joystick-nub');
+            const jumpButton = document.getElementById('mobile-jump-btn');
+            const explodeButton = document.getElementById('mobile-explode-btn');
+            const lockButton = document.getElementById('mobile-lock-btn');
+
+            let joystickActive = false;
+            let touchStartTime = 0;
+            let touchStartPos = { x: 0, y: 0 };
+            const joystickRadius = joystickZone.offsetWidth / 2;
+            const nubRadius = joystickNub.offsetWidth / 2;
+            const maxDelta = joystickRadius - nubRadius;
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                joystickActive = true;
+                const touch = e.changedTouches[0];
+                touchStartTime = Date.now();
+                touchStartPos = { x: touch.clientX, y: touch.clientY };
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (!joystickActive) return;
+
+                const touch = e.changedTouches[0];
+                const zoneRect = joystickZone.getBoundingClientRect();
+                const deltaX = touch.clientX - (zoneRect.left + joystickRadius);
+                const deltaY = touch.clientY - (zoneRect.top + joystickRadius);
+                
+                const angle = Math.atan2(deltaY, deltaX);
+                const distance = Math.min(maxDelta, Math.hypot(deltaX, deltaY));
+                
+                const newNubX = Math.cos(angle) * distance;
+                const newNubY = Math.sin(angle) * distance;
+                joystickNub.style.transform = `translate(-50%, -50%) translate(${newNubX}px, ${newNubY}px)`;
+
+                const threshold = 0.2;
+                if (newNubX / maxDelta < -threshold) {
+                    keys['KeyA'] = true;
+                    keys['KeyD'] = false;
+                } else if (newNubX / maxDelta > threshold) {
+                    keys['KeyA'] = false;
+                    keys['KeyD'] = true;
+                } else {
+                    keys['KeyA'] = false;
+                    keys['KeyD'] = false;
+                }
+            }, { passive: false });
+
+            const resetJoystick = (e) => {
+                const touch = e.changedTouches[0];
+                const touchDuration = Date.now() - touchStartTime;
+                const touchDistance = Math.hypot(touch.clientX - touchStartPos.x, touch.clientY - touchStartPos.y);
+
+                // Check for tap
+                if (touchDuration < 200 && touchDistance < 10) {
+                    const myPlayer = players.get(myPeerId);
+                    if (myPlayer) {
+                        myPlayer.sprintModeActive = !myPlayer.sprintModeActive;
+                        if (myPlayer.currentStamina <= 0) myPlayer.sprintModeActive = false; // Cant turn on with no stamina
+                        joystickNub.classList.toggle('active', myPlayer.sprintModeActive);
+                    }
+                }
+                
+                joystickActive = false;
+                joystickNub.style.transform = `translate(-50%, -50%)`;
+                keys['KeyA'] = false;
+                keys['KeyD'] = false;
+            };
+
+            joystickZone.addEventListener('touchend', resetJoystick);
+            joystickZone.addEventListener('touchcancel', resetJoystick);
+
+            jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
+            explodeButton.addEventListener('touchstart', (e) => { e.preventDefault(); respawnPlayer(); });
+            lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
         }
 
         function createWindParticle(position, direction, isMyPlayer) {
@@ -1046,11 +1259,11 @@
             let idleFrame = 0;
             let walkFrame = 0;
             let animTimer = 0;
-            const loopTime = 50; // Run loop every 50ms
+            const loopTime = 50; 
 
             const IDLE_FPS = 2;
             const WALK_FPS = 8;
-            const SPRINT_FPS = 14; // Faster animation for sprinting
+            const SPRINT_FPS = 14;
 
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
@@ -1059,14 +1272,12 @@
                     if (!player.body || player.isTransformed) continue;
                     
                     const speed = Vector.magnitude(player.body.velocity);
-                    // UPDATED: Walking animation is now based on speed, not being on the ground
                     player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
 
                     const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
                     if (!spriteWrapper) continue;
 
-                    // Update sprite direction
                     spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
 
                     const sprites = player.element.querySelectorAll('.player-sprite');
@@ -1087,20 +1298,19 @@
                         } else {
                             idleFrame = (idleFrame + 1) % 2;
                         }
-                        animTimer = 0; // Reset timer only when frame changes
+                        animTimer = 0;
                     }
 
                     let currentSpritePath;
                     if (player.isSprinting || player.isWalking) {
                         currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
-                    } else { // isIdle
+                    } else { 
                         currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
                     }
 
                     sprites[0].src = currentSpritePath;
                     sprites[1].src = currentSpritePath;
                     
-                    // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
                         createWindParticle(player.body.position, player.direction, true);
@@ -1120,7 +1330,7 @@
                 const particle = document.createElement('div');
                 particle.className = 'respawn-particle';
                 const angle = Math.random() * 2 * Math.PI;
-                const distance = Math.random() * 100 + 50; // Increased distance for a bigger explosion
+                const distance = Math.random() * 100 + 50; 
                 particle.style.setProperty('--translateX', `${Math.cos(angle) * distance}px`);
                 particle.style.setProperty('--translateY', `${Math.sin(angle) * distance}px`);
                 particle.style.left = `${position.x}px`;
@@ -1137,7 +1347,7 @@
                 particle.className = 'spawn-in-particle';
 
                 const angle = Math.random() * 2 * Math.PI;
-                const initialDist = Math.random() * 200 + 100; // Start further out
+                const initialDist = Math.random() * 200 + 100;
                 
                 const startX = Math.cos(angle) * initialDist;
                 const startY = Math.sin(angle) * initialDist;
@@ -1145,9 +1355,7 @@
                 particle.style.setProperty('--translateX', `${startX}px`);
                 particle.style.setProperty('--translateY', `${startY}px`);
 
-                // Particles that start further away get a slightly longer animation duration,
-                // making them appear to move faster to catch up.
-                const duration = 0.5 + (initialDist / 300) * 0.3; // Base duration + distance factor
+                const duration = 0.5 + (initialDist / 300) * 0.3; 
                 particle.style.animationDuration = `${duration}s`;
 
                 particle.style.left = `${position.x}px`;
@@ -1163,7 +1371,7 @@
             if (!myPlayer) return;
 
             const oldPosition = { ...myPlayer.body.position };
-            const currentUsername = myPlayer.username; // Save username before removing
+            const currentUsername = myPlayer.username;
             
             createRespawnParticles(oldPosition);
             
@@ -1175,18 +1383,16 @@
             setTimeout(() => {
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200};
                 
-                // Spawn-in particle effect
                 createSpawnInParticles(newSpawnPosition);
 
                 setTimeout(() => {
-                    // Create player with the saved username, not as an initial spawn
                     createPlayer(myPeerId, currentUsername, newSpawnPosition, false); 
                     
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
                     }, 500);
-                }, 500); // Wait for spawn-in particles to converge
+                }, 500);
             }, 1000);
         }
         
