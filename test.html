@@ -21,6 +21,7 @@
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
             --off-screen-indicator-color: #007bff;
+            --stamina-bar-color: #28a745; /* Green for stamina */
         }
 
         body {
@@ -55,7 +56,7 @@
         .player-object {
             background-color: transparent; /* Player container is invisible */
             border: none; /* No border for the player container itself */
-            transition: border-radius 0.2s ease, opacity 0.2s ease, height 0.2s ease; /* NEW: Added height transition */
+            transition: border-radius 0.2s ease, opacity 0.2s ease;
             z-index: 10;
         }
 
@@ -188,11 +189,35 @@
             left: 15px;
             z-index: 25;
             display: flex;
+            flex-direction: column; /* Changed to column for stamina bar */
             gap: 10px;
         }
 
-        #game-ui .btn {
+        #game-ui-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        #game-ui-buttons .btn {
             width: auto;
+        }
+
+        #stamina-bar-container {
+            width: 200px;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            border: 2px solid var(--border-color);
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        #stamina-bar {
+            width: 100%;
+            height: 100%;
+            background-color: var(--stamina-bar-color);
+            border-radius: 8px;
+            transition: width 0.1s linear;
         }
         
         #status {
@@ -322,54 +347,6 @@
             border-radius: 10px;
             white-space: nowrap;
         }
-
-        /* NEW: Styles for Survival HUD (Food/Water) and World Objects */
-        #survival-hud {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 25;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .status-bar-container {
-            width: 200px;
-            height: 20px;
-            background-color: rgba(0,0,0,0.5);
-            border: 2px solid #000;
-            border-radius: 5px;
-            padding: 2px;
-            box-sizing: border-box;
-        }
-        .bar {
-            height: 100%;
-            transition: width 0.2s linear;
-            border-radius: 2px;
-        }
-        #food-bar { 
-            background-color: #d9534f; /* Red */
-            width: 100%; 
-        }
-        #water-bar { 
-            background-color: #5bc0de; /* Blue */
-            width: 100%; 
-        }
-        .pond-object {
-            background-color: rgba(0, 100, 255, 0.5);
-            border: 2px solid #0056b3;
-            z-index: 5;
-            box-sizing: border-box;
-        }
-        .cherry-object {
-            position: absolute;
-            background-color: #dc3545;
-            border: 1px solid #c82333;
-            width: 15px;
-            height: 15px;
-            border-radius: 50%;
-            z-index: 6;
-        }
     </style>
 </head>
 <body>
@@ -380,16 +357,12 @@
         <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
-            <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
-            <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
-        </div>
-
-        <div id="survival-hud" class="hidden">
-            <div class="status-bar-container">
-                <div id="food-bar" class="bar"></div>
+            <div id="stamina-bar-container">
+                <div id="stamina-bar"></div>
             </div>
-            <div class="status-bar-container">
-                <div id="water-bar" class="bar"></div>
+            <div id="game-ui-buttons">
+                <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
+                <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
             </div>
         </div>
 
@@ -447,26 +420,18 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        // NEW: Maps to store ponds and cherries
-        const ponds = new Map();
-        const cherries = new Map();
-        const worldWidth = 50000; // Much wider world
-        const worldHeight = 10000; // Taller world to feel infinite
+        const worldWidth = 50000;
+        const worldHeight = 10000;
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
-        
-        // NEW: Player survival stats
-        let foodLevel = 100;
-        const maxFood = 100;
-        let waterLevel = 100;
-        const maxWater = 100;
-        let isDrinking = false;
+        let sprintParticleTimer = 0;
+        const SPRINT_PARTICLE_INTERVAL = 100; // ms
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
-        const LOBBY_PREFIX = 'CUBE-EVOLVED-'; // Can be changed
+        const LOBBY_PREFIX = 'CUBE-EVOLVED-';
 
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
@@ -481,8 +446,7 @@
         const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
         const hostInfoDiv = document.getElementById('host-info');
         const mobileControls = document.getElementById('mobile-controls');
-        // NEW: UI element for survival bars
-        const survivalHud = document.getElementById('survival-hud');
+        const staminaBar = document.getElementById('stamina-bar');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -518,7 +482,6 @@
                 
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
-                survivalHud.classList.remove('hidden'); // NEW: Show survival bars
                 
                 initPhysics();
                 createWorld();
@@ -595,7 +558,6 @@
             isHost = false;
             
             gameUi.classList.add('hidden');
-            survivalHud.classList.add('hidden'); // NEW: Hide survival bars
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             showMainView();
@@ -606,18 +568,9 @@
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
-                case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
+                case 'glide-particle': createWindParticle(data.position, data.direction, false); break; // Updated
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
-                // NEW: Handle removal of a cherry for all players
-                case 'remove-cherry':
-                    const cherry = cherries.get(data.id);
-                    if (cherry) {
-                        World.remove(world, cherry.body);
-                        cherry.element.remove();
-                        cherries.delete(data.id);
-                    }
-                    break;
             }
         }
 
@@ -635,33 +588,31 @@
             runner = Runner.create();
             Runner.run(runner, engine);
             
-            Events.on(engine, 'afterUpdate', () => {
-                processPlayerInput();
+            let lastTime = performance.now();
+            Events.on(engine, 'afterUpdate', (event) => {
+                const currentTime = performance.now();
+                const deltaTime = currentTime - lastTime;
+                lastTime = currentTime;
+
+                processPlayerInput(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
-                
-                // NEW: Apply stat decay over time and update the bars
-                if (players.has(myPeerId)) {
-                    foodLevel = Math.max(0, foodLevel - 0.01);
-                    waterLevel = Math.max(0, waterLevel - 0.015);
-                    updateStatusBars();
-                }
+                updateStamina(deltaTime);
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                      broadcast({
-                         type: 'player-update',
-                         peerId: myPeerId,
-                         position: myPlayer.body.position,
-                         velocity: myPlayer.body.velocity,
-                         isTransformed: myPlayer.isTransformed,
-                         direction: myPlayer.direction
-                     });
+                        type: 'player-update',
+                        peerId: myPeerId,
+                        position: myPlayer.body.position,
+                        velocity: myPlayer.body.velocity,
+                        isTransformed: myPlayer.isTransformed,
+                        direction: myPlayer.direction
+                    });
                 }
             });
 
-            // NEW: Updated collision logic for cherries and ground detection
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
@@ -671,141 +622,19 @@
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
 
-                    const otherBody = pair.bodyA.isStatic ? pair.bodyB : pair.bodyA;
-
-                    // Ground check
-                    if (otherBody.isStatic && !otherBody.isSensor) {
+                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
                         player.onGround = true;
                     }
-
-                    // Cherry collision (only for the local player)
-                    if (player.peerId === myPeerId && otherBody.label.startsWith('cherry')) {
-                        const cherryId = otherBody.label;
-                        const cherry = cherries.get(cherryId);
-                        if (cherry) {
-                            foodLevel = Math.min(foodLevel + 15, maxFood); // Replenish food
-                            updateStatusBars();
-                            
-                            // Remove for local player
-                            World.remove(world, cherry.body);
-                            cherry.element.remove();
-                            cherries.delete(cherryId);
-
-                            // Tell others to remove it
-                            broadcast({ type: 'remove-cherry', id: cherryId });
-                        }
-                    }
                 }
-            });
-
-            // NEW: Collision check to see if player is in a pond
-            Events.on(engine, 'collisionActive', (event) => {
-                const pairs = event.pairs;
-                const myPlayer = players.get(myPeerId);
-                if (!myPlayer) return;
-
-                let inPond = false;
-                for (const pair of pairs) {
-                    const playerBody = getPlayerBodyFromPair(pair);
-                    if (!playerBody || playerBody.label.split('_')[1] !== myPeerId) continue;
-
-                    const otherBody = pair.bodyA === playerBody ? pair.bodyB : pair.bodyA;
-                    if (otherBody.label.startsWith('pond')) {
-                        inPond = true;
-                        break;
-                    }
-                }
-                myPlayer.inPond = inPond;
             });
         }
 
-        // NEW: Updated to spawn ponds and cherries
         function createWorld() {
-            // A single, seemingly infinite white floor
             const floorHeight = 2000;
-            createStaticObject(`ground`, worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight);
-
-            // Generate Ponds
-            const numPonds = 30;
-            for (let i = 0; i < numPonds; i++) {
-                const pondWidth = Math.random() * 400 + 250;
-                const pondHeight = Math.random() * 60 + 40;
-                const x = Math.random() * (worldWidth - pondWidth);
-                const y = worldHeight - pondHeight / 2;
-                createPond(`pond_${i}`, x + pondWidth / 2, y, pondWidth, pondHeight);
-            }
-
-            // Generate Cherries
-            const numCherries = 150;
-            for (let i = 0; i < numCherries; i++) {
-                let cherryX, cherryY;
-                let validPosition = false;
-                let attempts = 0;
-                while (!validPosition && attempts < 50) {
-                    cherryX = Math.random() * worldWidth;
-                    cherryY = worldHeight - 10; // Position on the ground
-                    
-                    let isInPond = false;
-                    for(const pond of ponds.values()){
-                        const pos = pond.body.position;
-                        const vertices = pond.body.vertices;
-                        if(cherryX > vertices[0].x && cherryX < vertices[1].x){
-                            isInPond = true;
-                            break;
-                        }
-                    }
-
-                    if (!isInPond) {
-                       validPosition = true;
-                    }
-                    attempts++;
-                }
-                if (validPosition) {
-                    createCherry(`cherry_${i}`, cherryX, cherryY);
-                }
-            }
-        }
-        
-        // NEW: Function to create a pond (visual element + sensor body)
-        function createPond(id, x, y, w, h) {
-            const el = document.createElement('div');
-            el.id = id;
-            el.className = 'game-object pond-object';
-            el.style.width = `${w}px`;
-            el.style.height = `${h}px`;
-            el.style.left = `${x - w / 2}px`;
-            el.style.top = `${y - h / 2}px`;
-            worldContainer.appendChild(el);
-
-            const body = Bodies.rectangle(x, y, w, h, {
-                isStatic: true,
-                isSensor: true, // Allows player to walk through
-                label: id
-            });
-            World.add(world, body);
-            ponds.set(id, { body, element: el });
-        }
-        
-        // NEW: Function to create a cherry (visual element + sensor body)
-        function createCherry(id, x, y) {
-            const size = 15;
-            const el = document.createElement('div');
-            el.id = id;
-            el.className = 'cherry-object';
-            el.style.left = `${x - size/2}px`;
-            el.style.top = `${y - size/2}px`;
-            worldContainer.appendChild(el);
-
-            const body = Bodies.rectangle(x, y, size, size, {
-                isStatic: true,
-                isSensor: true, // Allows player to trigger collision without stopping
-                label: id
-            });
-            World.add(world, body);
-            cherries.set(id, { body, element: el });
+            createStaticObject(worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight, `ground`);
         }
 
-        function createStaticObject(id, x, y, w, h, className = '') {
+        function createStaticObject(x, y, w, h, id, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
             World.add(world, body);
             
@@ -836,9 +665,9 @@
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
-                <img src="https://i.imgur.com/Jli5T2l.png" class="player-sprite" alt="Player">
+                <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
                 <div class="player-name">${username}</div>
-            `; // Note: Using an online placeholder for image
+            `;
             worldContainer.appendChild(playerEl);
 
             const indicatorEl = document.createElement('div');
@@ -853,8 +682,9 @@
             
             players.set(peerId, { 
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
-                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false, 
-                inPond: false // NEW: Track if player is in a pond
+                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
+                isSprinting: false, maxStamina: 100, currentStamina: 100, 
+                staminaDrainRate: 25, staminaRegenRate: 15
             });
         }
 
@@ -891,11 +721,14 @@
                 if (!player.body) continue;
                 const { position, angle } = player.body;
 
-                const width = player.body.bounds.max.x - player.body.bounds.min.x;
-                const height = player.body.bounds.max.y - player.body.bounds.min.y;
-
-                player.element.style.width = `${width}px`;
-                player.element.style.height = `${height}px`;
+                if (!player.isTransformed) {
+                    player.element.style.width = `40px`;
+                    player.element.style.height = `60px`;
+                } else {
+                    const diameter = 25 * 2;
+                    player.element.style.width = `${diameter}px`;
+                    player.element.style.height = `${diameter}px`;
+                }
 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
@@ -996,6 +829,21 @@
             }
         }
 
+        function updateStamina(deltaTime) {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+
+            // Regenerate stamina if not sprinting
+            if (!myPlayer.isSprinting) {
+                myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
+            }
+
+            // Update the UI
+            const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
+            staminaBar.style.width = `${staminaPercentage}%`;
+        }
+
+
         const keys = {};
         function setupInputControls() {
             if ('ontouchstart' in window) {
@@ -1010,11 +858,15 @@
         function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
         function handleKeyUp(e) { keys[e.code] = false; }
         
-        function processPlayerInput() {
+        function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead || isDrinking) return; // NEW: Prevent movement while drinking
+            if (!myPlayer || myPlayer.isDead) return;
 
             const body = myPlayer.body;
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+            const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
+
+            myPlayer.isSprinting = false; // Reset every frame
 
             if (myPlayer.isTransformed) {
                  const moveForce = 0.001;
@@ -1023,7 +875,22 @@
                 if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
                 if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
             } else {
-                const moveSpeed = 5;
+                let moveSpeed = 5;
+
+                if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
+                    moveSpeed = 9; // Faster speed
+                    myPlayer.isSprinting = true;
+                    myPlayer.currentStamina -= myPlayer.staminaDrainRate * (deltaTime / 1000);
+                    
+                    sprintParticleTimer += deltaTime;
+                    if (sprintParticleTimer >= SPRINT_PARTICLE_INTERVAL) {
+                        broadcast({type: 'glide-particle', position: myPlayer.body.position, direction: myPlayer.direction});
+                        createWindParticle(myPlayer.body.position, myPlayer.direction, true);
+                        sprintParticleTimer = 0;
+                    }
+
+                }
+
                 if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                     myPlayer.direction = 'left';
@@ -1036,100 +903,29 @@
             }
         }
 
-        // NEW: Updated to handle drinking action
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
             const body = myPlayer.body;
 
-            if ((e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') && !isDrinking) {
+            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     Body.applyForce(body, body.position, { x: 0, y: -0.25 });
+                     // Reduced jump force
+                     Body.applyForce(body, body.position, { x: 0, y: -0.15 });
                      myPlayer.onGround = false;
                 }
             }
             
-            if (e.code === 'KeyB' && !isDrinking) {
+            if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
-
-            if (e.code === 'KeyE' && myPlayer.inPond && !isDrinking) {
-                startDrinking(myPlayer);
-            }
         }
-        
-        // NEW: Function to handle the drinking action
-        function startDrinking(player) {
-            if (isDrinking) return;
-            isDrinking = true;
-
-            const oldBody = player.body;
-            const newHeight = 30; // Half of original 60
-            const newWidth = 40;
-
-            // Recreate body at half height
-            const newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y + 15, newWidth, newHeight, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: oldBody.collisionFilter, label: oldBody.label
-            });
-            
-            Body.setVelocity(newBody, oldBody.velocity);
-            World.remove(world, oldBody);
-            World.add(world, newBody);
-            player.body = newBody;
-
-            // Replenish water over time
-            const drinkInterval = setInterval(() => {
-                if (waterLevel >= maxWater || !player.inPond) {
-                    stopDrinking(player, drinkInterval);
-                } else {
-                    waterLevel = Math.min(waterLevel + 10, maxWater);
-                    updateStatusBars();
-                }
-            }, 200);
-
-            // Automatically stop after 2 seconds
-            setTimeout(() => {
-                stopDrinking(player, drinkInterval);
-            }, 2000);
-        }
-        
-        // NEW: Function to stop drinking and restore player size
-        function stopDrinking(player, interval) {
-            if (!isDrinking) return;
-            clearInterval(interval);
-            isDrinking = false;
-
-            const oldBody = player.body;
-            const originalHeight = 60;
-            const originalWidth = 40;
-
-            // Recreate body at full height, adjusting position to avoid clipping
-            const newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y - 15, originalWidth, originalHeight, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: oldBody.collisionFilter, label: oldBody.label
-            });
-
-            Body.setVelocity(newBody, oldBody.velocity);
-            World.remove(world, oldBody);
-            World.add(world, newBody);
-            player.body = newBody;
-        }
-        
-        // NEW: Function to update the width of the food and water bars
-        function updateStatusBars() {
-            const foodBar = document.getElementById('food-bar');
-            const waterBar = document.getElementById('water-bar');
-            if (foodBar) foodBar.style.width = `${(foodLevel / maxFood) * 100}%`;
-            if (waterBar) waterBar.style.width = `${(waterLevel / maxWater) * 100}%`;
-        }
-
 
         function setupMobileControls() {
              // Mobile controls logic can be expanded here
         }
 
-        function createGlideParticle(position, direction, isMyPlayer) {
+        function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
 
             const particleEl = document.createElement('div');
@@ -1146,34 +942,18 @@
         function startAnimationLoop() {
             let idleFrame = 0;
             let walkFrame = 0;
-            let idleTimer = 0;
-            let walkTimer = 0;
+            let animTimer = 0;
             const loopTime = 50; // Run loop every 50ms
 
             const IDLE_FPS = 2;
-            const WALK_FPS = 4;
-            const IDLE_FRAME_DURATION = 1000 / IDLE_FPS; // 500ms
-            const WALK_FRAME_DURATION = 1000 / WALK_FPS; // 250ms
-
-            // Using placeholder images
-            const idleSprites = ['https://i.imgur.com/Jli5T2l.png', 'https://i.imgur.com/Jli5T2l.png']; // Replace with actual idle frames
-            const walkSprites = ['https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png']; // Replace with actual walk frames
+            const WALK_FPS = 8;
+            const SPRINT_FPS = 14; // Faster animation for sprinting
 
             animationInterval = setInterval(() => {
-                idleTimer += loopTime;
-                walkTimer += loopTime;
-
-                if (idleTimer >= IDLE_FRAME_DURATION) { 
-                    idleFrame = (idleFrame + 1) % idleSprites.length; 
-                    idleTimer = 0; 
-                }
-                if (walkTimer >= WALK_FRAME_DURATION) { 
-                    walkFrame = (walkFrame + 1) % walkSprites.length; 
-                    walkTimer = 0; 
-                }
+                animTimer += loopTime;
 
                 for (const player of players.values()) {
-                    if (!player.body || player.isTransformed || isDrinking) continue; // NEW: Freeze animation while drinking
+                    if (!player.body || player.isTransformed) continue;
                     
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = player.onGround && speed > 0.5;
@@ -1182,15 +962,34 @@
                     const sprite = player.element.querySelector('.player-sprite');
                     if (!sprite) continue;
 
-                    if (player.isWalking) {
-                        sprite.src = walkSprites[walkFrame];
-                    } else {
-                        sprite.src = idleSprites[idleFrame];
+                    let currentFps = IDLE_FPS;
+                    if (player.isSprinting) {
+                        currentFps = SPRINT_FPS;
+                    } else if (player.isWalking) {
+                        currentFps = WALK_FPS;
+                    }
+
+                    const frameDuration = 1000 / currentFps;
+                    const totalFrames = (player.isWalking || player.isSprinting) ? 4 : 2;
+                    
+                    if (animTimer >= frameDuration) {
+                        if(player.isWalking || player.isSprinting) {
+                            walkFrame = (walkFrame + 1) % 4;
+                        } else {
+                            idleFrame = (idleFrame + 1) % 2;
+                        }
+                        animTimer = 0; // Reset timer only when frame changes
+                    }
+
+                    if (player.isSprinting || player.isWalking) {
+                        sprite.src = `../images/player-walk${walkFrame + 1}.png`;
+                    } else { // isIdle
+                        sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
-                        createGlideParticle(player.body.position, player.direction, true);
+                        createWindParticle(player.body.position, player.direction, true);
                     }
                 }
             }, loopTime);
