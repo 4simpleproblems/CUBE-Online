@@ -438,7 +438,10 @@
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                     const speed = Vector.magnitude(myPlayer.body.velocity);
-                    myPlayer.isIdle = speed < 0.5;
+                    const onGround = Math.abs(myPlayer.body.velocity.y) < 0.1;
+
+                    myPlayer.isIdle = speed < 0.5 && onGround;
+                    myPlayer.isWalking = speed >= 0.5 && onGround;
 
                      broadcast({
                         type: 'player-update',
@@ -492,12 +495,12 @@
             playerEl.id = peerId;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
-                <img src="/images/player-idle1.png" class="player-sprite" alt="Player">
+                <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
                 <div class="player-name">${username}</div>
             `;
             worldContainer.appendChild(playerEl);
             
-            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false, isIdle: true });
+            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false, isIdle: true, isWalking: false });
         }
 
         function removePlayer(peerId) {
@@ -521,7 +524,9 @@
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
                 
                 const speed = Vector.magnitude(player.body.velocity);
-                player.isIdle = speed < 0.5;
+                const onGround = Math.abs(player.body.velocity.y) < 0.1;
+                player.isIdle = speed < 0.5 && onGround;
+                player.isWalking = speed >= 0.5 && onGround;
 
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
@@ -532,10 +537,16 @@
         function updatePlayerElements() {
             for (const player of players.values()) {
                 const { position, angle } = player.body;
-                const width = player.body.bounds.max.x - player.body.bounds.min.x;
-                const height = player.body.bounds.max.y - player.body.bounds.min.y;
-                player.element.style.width = `${width}px`;
-                player.element.style.height = `${height}px`;
+
+                if (!player.isTransformed) {
+                    player.element.style.width = `40px`;
+                    player.element.style.height = `60px`;
+                } else {
+                    const diameter = 25 * 2;
+                    player.element.style.width = `${diameter}px`;
+                    player.element.style.height = `${diameter}px`;
+                }
+
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
@@ -598,7 +609,7 @@
             if (!myPlayer) return;
             const body = myPlayer.body;
 
-            const moveForce = isTransformed ? 0.004 : 0.008;
+            const moveForce = isTransformed ? 0.005 : 0.012;
             if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
             if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
 
@@ -614,18 +625,26 @@
         }
 
         function startAnimationLoop() {
-            let frame = 0;
+            let idleFrame = 0;
+            let walkFrame = 0;
             animationInterval = setInterval(() => {
-                frame = (frame + 1) % 2;
-                const frameSrc = `/images/player-idle${frame + 1}.png`;
+                idleFrame = (idleFrame + 1) % 2;
+                walkFrame = (walkFrame + 1) % 4;
+
+                const idleSrc = `../images/player-idle${idleFrame + 1}.png`;
+                const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
 
                 for (const player of players.values()) {
                     const sprite = player.element.querySelector('.player-sprite');
-                    if (player.isIdle && sprite && !player.isTransformed) {
-                        sprite.src = frameSrc;
+                    if (!sprite || player.isTransformed) continue;
+
+                    if (player.isWalking) {
+                        sprite.src = walkSrc;
+                    } else { // Covers idle, jumping, and falling
+                        sprite.src = idleSrc;
                     }
                 }
-            }, 250); // 1000ms / 4fps = 250ms
+            }, 100); // 100ms interval = 10 FPS
         }
         
         // --- UI & Utility Functions ---
