@@ -133,13 +133,14 @@
         .player-sprite {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
+            image-rendering: pixelated;
             position: absolute;
             backface-visibility: hidden;
-            background-color: #ddd;
+            transform: scaleX(-1); /* Flip all sprites by default */
         }
 
-        .player-sprite.front { transform: rotateY(0deg); }
+        .player-sprite.front { transform: rotateY(0deg) scaleX(-1); }
         .player-sprite.back { transform: rotateY(180deg) scaleX(-1); }
         
         .player-name, .npc-name {
@@ -606,10 +607,10 @@
             }
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
+                lockLoginInputs();
                 const sessionData = { username, lobbyCode, isHost };
                 sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
                 updateUrlWithLobbyCode(lobbyCode);
-                lockLoginInputs();
                 showLoadingScreen(isCreating);
                 initializePeer(username);
             } else {
@@ -700,7 +701,6 @@
         }
 
         function handleData(data, conn) {
-            // HOST-SIDE LOGIC
             if (isHost) {
                 const peerId = conn.peer;
                 switch(data.type) {
@@ -710,20 +710,15 @@
                             conn.send({ type: 'reject-join', reason: 'Username is taken.' });
                         } else {
                             const currentPlayers = Array.from(players.values()).map(p => ({
-                                peerId: p.peerId,
-                                username: p.username,
-                                position: p.body.position,
-                                isTransformed: p.isTransformed,
-                                direction: p.direction
+                                peerId: p.peerId, username: p.username, position: p.body.position,
+                                isTransformed: p.isTransformed, direction: p.direction
                             }));
                             conn.send({ type: 'approve-join', roster: currentPlayers, peerId: peerId });
                             connections.set(peerId, conn);
                             
-                            // Create the new player on the host and inform everyone
                             const newPlayerData = { peerId: peerId, username: data.username, position: { x: worldWidth / 2, y: worldHeight - 200 } };
                             createPlayer(newPlayerData.peerId, newPlayerData.username, newPlayerData.position);
                             broadcast({ type: 'new-peer-announcement', ...newPlayerData }, newPlayerData.peerId);
-
                             updateLobbyControls();
                         }
                         break;
@@ -732,13 +727,12 @@
                         broadcast(data, peerId);
                         break;
                      case 'respawn-explosion':
-                        broadcast(data, peerId); 
+                        broadcast(data, data.peerId); 
                         break;
                 }
                 return;
             }
 
-            // CLIENT-SIDE LOGIC
             switch (data.type) {
                 case 'approve-join':
                     const username = document.getElementById('username-join').value.trim();
@@ -755,7 +749,6 @@
                     break;
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
-                case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
                 case 'new-peer-announcement': createPlayer(data.peerId, data.username, data.position); break;
                 case 'respawn-explosion': createRespawnParticles(data.position); break;
             }
@@ -791,7 +784,7 @@
                         position: myPlayer.body.position, velocity: myPlayer.body.velocity,
                         isTransformed: myPlayer.isTransformed, direction: myPlayer.direction
                     };
-                    isHost ? broadcast(data, myPeerId) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(data);
+                    isHost ? broadcast(data) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(data);
                 }
             });
             Events.on(engine, 'collisionStart', (event) => {
@@ -801,7 +794,6 @@
                         const player = players.get(playerBody.label.split('_')[1]);
                         if(player) player.onGround = true;
                     }
-
                     const npcBody = pair.bodyA.label.startsWith('npc_') ? pair.bodyA : (pair.bodyB.label.startsWith('npc_') ? pair.bodyB : null);
                     if (npcBody) {
                          const npc = npcs.get(npcBody.label.split('_')[1]);
@@ -843,7 +835,7 @@
             const playerEl = document.createElement('div');
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://via.placeholder.com/40x60/888/fff?text=P" class="player-sprite front"><img src="https://via.placeholder.com/40x60/888/fff?text=P" class="player-sprite back"></div><div class="player-name">${username}</div>`;
+            playerEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://i.ibb.co/dBrh7M3/player-idle1.png" class="player-sprite front"><img src="https://i.ibb.co/dBrh7M3/player-idle1.png" class="player-sprite back"></div><div class="player-name">${username}</div>`;
             worldContainer.appendChild(playerEl);
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
@@ -875,7 +867,7 @@
             const npcEl = document.createElement('div');
             npcEl.id = `npc-el-${name}`;
             npcEl.className = 'game-object player-object';
-            npcEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://via.placeholder.com/40x60/333/fff?text=N" class="player-sprite front"><img src="https://via.placeholder.com/40x60/333/fff?text=N" class="player-sprite back"></div><div class="npc-name">[NPC] ${name}</div>`;
+            npcEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://i.ibb.co/dBrh7M3/player-idle1.png" class="player-sprite front"><img src="https://i.ibb.co/dBrh7M3/player-idle1.png" class="player-sprite back"></div><div class="npc-name">[NPC] ${name}</div>`;
             worldContainer.appendChild(npcEl);
             const npc = {
                 name, body: npcBody, element: npcEl, onGround: true, direction: 'left', isWalking: false,
@@ -931,6 +923,11 @@
                 
                 const spriteWrapper = npc.element.querySelector('.player-sprite-wrapper');
                 spriteWrapper.style.transform = `rotateY(${npc.direction === 'left' ? 180 : 0}deg)`;
+                
+                const sprites = npc.element.querySelectorAll('.player-sprite');
+                const spriteSrc = npc.isWalking ? 'https://i.ibb.co/8M02asm/player-walk1.png' : 'https://i.ibb.co/dBrh7M3/player-idle1.png';
+                sprites[0].src = spriteSrc;
+                sprites[1].src = spriteSrc;
             }
         }
         
@@ -1239,13 +1236,28 @@
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
                 for (const player of players.values()) {
-                    if (!player.body || player.isTransformed || !player.element) continue;
+                    if (!player.body || player.isTransformed) continue;
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
                     const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
                     if (!spriteWrapper) continue;
                     spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+                    
+                    const sprites = player.element.querySelectorAll('.player-sprite');
+                    if (sprites.length < 2) continue;
+
+                    let spriteSrc = 'https://i.ibb.co/dBrh7M3/player-idle1.png'; // Default idle
+                    if (player.isSprinting || player.isWalking) {
+                        const frame = Math.floor(Date.now() / (1000 / (player.isSprinting ? SPRINT_FPS : WALK_FPS))) % 4;
+                        const walkSprites = ['https://i.ibb.co/8M02asm/player-walk1.png', 'https://i.ibb.co/bF9gL3b/player-walk2.png', 'https://i.ibb.co/SmL2bSg/player-walk3.png', 'https://i.ibb.co/bF9gL3b/player-walk2.png'];
+                        spriteSrc = walkSprites[frame];
+                    } else {
+                         const frame = Math.floor(Date.now() / (1000 / IDLE_FPS)) % 2;
+                         spriteSrc = frame === 0 ? 'https://i.ibb.co/dBrh7M3/player-idle1.png' : 'https://i.ibb.co/9vns2Bw/player-idle2.png';
+                    }
+                    sprites[0].src = spriteSrc;
+                    sprites[1].src = spriteSrc;
                 }
             }, loopTime);
         }
@@ -1364,7 +1376,7 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Check lobby code or connection.`);
+            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
             leaveLobby();
         }
 
