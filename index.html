@@ -37,10 +37,15 @@
             height: 100vh;
             position: relative;
             overflow: hidden;
+            cursor: default;
+        }
+        #game-viewport.edit-mode {
+            cursor: crosshair;
         }
         
         #world-container {
             position: absolute;
+            transition: transform 0.1s linear;
         }
 
         .game-object {
@@ -48,10 +53,18 @@
             background-color: #555; /* Platform color */
             transform-origin: center center;
         }
+        .game-object.dynamic:hover {
+            background-color: #777;
+        }
+        .game-object.dynamic.delete-mode:hover {
+            background-color: var(--danger-color);
+            cursor: pointer;
+        }
         
         .player-object {
             background-color: transparent; /* Player container is invisible */
             transition: border-radius 0.2s ease, opacity 0.2s ease;
+            z-index: 10;
         }
 
         .lava-object {
@@ -63,6 +76,7 @@
             position: absolute;
             border-radius: 50%;
             pointer-events: none;
+            z-index: 15;
         }
         .death-particle {
             background-color: #000;
@@ -87,7 +101,6 @@
             height: 100%;
             object-fit: contain; /* Ensures sprite fits without stretching */
             image-rendering: pixelated; /* For a sharp, retro look */
-            transition: transform 0.1s linear;
         }
         
         .player-name {
@@ -180,6 +193,10 @@
         .btn-secondary:hover { background-color: var(--secondary-hover-color); }
         .btn-danger { background-color: var(--danger-color); }
         .btn-danger:hover { background-color: var(--danger-hover-color); }
+        .btn.active {
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+            background-color: var(--accent-hover-color);
+        }
 
         #game-ui {
             position: absolute;
@@ -191,7 +208,7 @@
         }
 
         #game-ui .btn {
-            width: auto; /* Override width for in-game buttons */
+            width: auto;
         }
         
         #status {
@@ -201,7 +218,7 @@
             transform: translateX(-50%);
             font-size: 1rem;
             text-align: center;
-            height: 40px; /* Reserve space */
+            height: 40px;
         }
         
         #host-info {
@@ -258,6 +275,20 @@
         .settings-row label {
             margin-right: 15px;
         }
+
+        #edit-toolbar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--surface-color);
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            z-index: 25;
+        }
         
         .loader {
             border: 4px solid var(--border-color);
@@ -293,6 +324,12 @@
         <div id="game-ui" class="hidden">
             <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
             <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+            <button id="edit-mode-btn" class="btn btn-secondary hidden">Edit Map</button>
+        </div>
+
+        <div id="edit-toolbar" class="hidden">
+            <button id="add-platform-btn" class="btn active">Add</button>
+            <button id="delete-platform-btn" class="btn btn-danger">Delete</button>
         </div>
 
         <div id="settings-container" class="hidden">
@@ -351,11 +388,16 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 6000;
-        const worldHeight = 2000;
+        const dynamicPlatforms = new Map();
+        const worldWidth = 10000;
+        const worldHeight = 4000;
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
+        let isEditMode = false;
+        let editTool = 'add';
+        let cameraScale = 1;
+        let lastMoveTime = Date.now();
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -377,6 +419,10 @@
         const settingsBtn = document.getElementById('settings-btn');
         const settingsMenu = document.getElementById('settings-menu');
         const particleToggle = document.getElementById('particle-toggle');
+        const editModeBtn = document.getElementById('edit-mode-btn');
+        const editToolbar = document.getElementById('edit-toolbar');
+        const addPlatformBtn = document.getElementById('add-platform-btn');
+        const deletePlatformBtn = document.getElementById('delete-platform-btn');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -388,6 +434,9 @@
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         settingsBtn.addEventListener('click', () => settingsMenu.classList.toggle('hidden'));
         particleToggle.addEventListener('change', (e) => showOtherPlayerParticles = e.target.checked);
+        editModeBtn.addEventListener('click', toggleEditMode);
+        addPlatformBtn.addEventListener('click', () => setEditTool('add'));
+        deletePlatformBtn.addEventListener('click', () => setEditTool('delete'));
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
@@ -430,6 +479,7 @@
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
+                    editModeBtn.classList.remove('hidden');
                     updateLobbyControls();
                 } else {
                     connectToPeer(LOBBY_PREFIX + lobbyCode);
@@ -442,7 +492,13 @@
         function setupConnection(conn) {
             conn.on('open', () => {
                 connections.set(conn.peer, conn);
-                if (isHost) updateLobbyControls();
+                if (isHost) {
+                    updateLobbyControls();
+                    // Send existing dynamic platforms to new player
+                    for (const [id, platform] of dynamicPlatforms.entries()) {
+                        conn.send({ type: 'map-change', action: 'add', platformData: platform.data });
+                    }
+                }
 
                 if (isHost) {
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
@@ -486,12 +542,15 @@
             players.clear();
             connections.clear();
             gameObjects.clear();
+            dynamicPlatforms.clear();
             worldContainer.innerHTML = '';
             isHost = false;
             
             gameUi.classList.add('hidden');
             settingsContainer.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
+            editModeBtn.classList.add('hidden');
+            editToolbar.classList.add('hidden');
             showMainView();
         }
 
@@ -501,6 +560,9 @@
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
                 case 'player-death': triggerRemoteDeathFX(data.peerId); break;
+                case 'player-respawn': respawnRemotePlayer(data.peerId, data.position); break;
+                case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
+                case 'map-change': handleMapChange(data); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -565,23 +627,27 @@
             createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
             createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
-            const pitX = 1800;
-            const pitWidth = 400;
-            const ground1Width = pitX - pitWidth / 2;
-            createStaticObject(ground1Width / 2, worldHeight - 10, ground1Width, 20, 'ground1');
-            const ground2X = pitX + pitWidth / 2;
-            const ground2Width = worldWidth - ground2X;
-            createStaticObject(ground2X + ground2Width / 2, worldHeight - 10, ground2Width, 20, 'ground2');
-            
-            createSensorObject(pitX, worldHeight - 15, pitWidth, 30, 'lava1', 'lava-object');
+            // Procedurally generate ground and lava pits
+            let currentX = 0;
+            while (currentX < worldWidth) {
+                const groundWidth = 1000 + Math.random() * 2000;
+                createStaticObject(currentX + groundWidth / 2, worldHeight - 10, groundWidth, 20, `ground_${currentX}`);
+                currentX += groundWidth;
 
-            createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
-            createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
-            createStaticObject(1500, worldHeight - 250, 300, 30, 'platform3');
-            createStaticObject(2200, worldHeight - 500, 500, 30, 'platform4');
-            createStaticObject(3000, worldHeight - 300, 800, 30, 'platform5');
-            createStaticObject(4000, worldHeight - 600, 200, 30, 'platform6');
-            createStaticObject(4500, worldHeight - 450, 600, 30, 'platform7');
+                if (currentX < worldWidth - 500) {
+                    const pitWidth = 300 + Math.random() * 400;
+                    createSensorObject(currentX + pitWidth / 2, worldHeight - 15, pitWidth, 30, `lava_${currentX}`, 'lava-object');
+                    currentX += pitWidth;
+                }
+            }
+
+            // Procedurally generate platforms
+            for (let i = 0; i < 50; i++) {
+                const pX = Math.random() * worldWidth;
+                const pY = worldHeight - (100 + Math.random() * (worldHeight * 0.6));
+                const pW = 200 + Math.random() * 400;
+                createStaticObject(pX, pY, pW, 30, `platform_${i}`);
+            }
         }
 
         function createStaticObject(x, y, w, h, id, className = '') {
@@ -636,16 +702,8 @@
             worldContainer.appendChild(playerEl);
             
             players.set(peerId, { 
-                peerId,
-                body: playerBody, 
-                element: playerEl, 
-                username, 
-                isTransformed: false, 
-                isIdle: true, 
-                isWalking: false,
-                onGround: false,
-                direction: 'right',
-                isDead: false
+                peerId, body, element: playerEl, username, isTransformed: false, 
+                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false
             });
         }
 
@@ -678,6 +736,7 @@
         
         function updatePlayerElements() {
             for (const player of players.values()) {
+                if (!player.body) continue;
                 const { position, angle } = player.body;
 
                 if (!player.isTransformed) {
@@ -740,14 +799,19 @@
         function updateCamera() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
+
+            const idleTime = Date.now() - lastMoveTime;
+            const targetScale = idleTime > 5000 ? 0.7 : 1.0; // Zoom out after 5 seconds
+            cameraScale += (targetScale - cameraScale) * 0.05; // Smooth transition
+
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
             
-            const targetX = -x + viewportWidth / 2;
-            const targetY = -y + viewportHeight / 2;
+            const targetX = -x * cameraScale + viewportWidth / 2;
+            const targetY = -y * cameraScale + viewportHeight / 2;
 
-            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${cameraScale})`;
         }
 
         const keys = {};
@@ -760,26 +824,21 @@
 
             const body = myPlayer.body;
             const moveSpeed = 5;
-            let targetVelocityX = 0;
+            let moved = false;
 
             if (keys['KeyA'] || keys['ArrowLeft']) {
-                targetVelocityX = -moveSpeed;
+                Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                 myPlayer.direction = 'left';
+                moved = true;
             } else if (keys['KeyD'] || keys['ArrowRight']) {
-                targetVelocityX = moveSpeed;
+                Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
                 myPlayer.direction = 'right';
+                moved = true;
+            } else if (myPlayer.onGround) {
+                Body.setVelocity(body, { x: 0, y: body.velocity.y });
             }
             
-            if (myPlayer.onGround) {
-                Body.setVelocity(body, { x: targetVelocityX, y: body.velocity.y });
-            } else {
-                const airForce = 0.001; // Reduced air control
-                 if (keys['KeyA'] || keys['ArrowLeft']) {
-                    Body.applyForce(body, body.position, { x: -airForce, y: 0 });
-                } else if (keys['KeyD'] || keys['ArrowRight']) {
-                    Body.applyForce(body, body.position, { x: airForce, y: 0 });
-                }
-            }
+            if (moved) lastMoveTime = Date.now();
         }
 
         function handleSinglePressInput(e) {
@@ -790,35 +849,31 @@
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
-                     myPlayer.onGround = false; // Prevent double jumps
+                     myPlayer.onGround = false;
+                     lastMoveTime = Date.now();
                 }
             }
             
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
+                lastMoveTime = Date.now();
             }
         }
 
         function startDeathSequence(player) {
             player.isDead = true;
             broadcast({ type: 'player-death', peerId: player.peerId });
-            triggerRemoteDeathFX(player.peerId); // Trigger for self
+            triggerRemoteDeathFX(player.peerId);
             
             fadeOverlay.classList.add('active');
 
             setTimeout(() => {
                 const spawnPoint = { x: worldWidth / 2, y: worldHeight - 200 };
-                player.body = Bodies.rectangle(spawnPoint.x, spawnPoint.y, 40, 60, {
-                    inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                    collisionFilter: player.body.collisionFilter, label: player.body.label
-                });
-                World.add(world, player.body);
-                Body.setVelocity(player.body, {x: 0, y: 0});
+                respawnRemotePlayer(player.peerId, spawnPoint); // Respawn self
+                broadcast({ type: 'player-respawn', peerId: player.peerId, position: spawnPoint });
                 
                 setTimeout(() => {
                     fadeOverlay.classList.remove('active');
-                    player.element.style.opacity = '1';
-                    player.isDead = false;
                 }, 500);
 
             }, 600);
@@ -826,57 +881,67 @@
 
         function triggerRemoteDeathFX(peerId) {
             const player = players.get(peerId);
-            if (!player) return;
-
+            if (!player || !player.body) return;
+            
+            player.isDead = true;
             player.element.style.opacity = '0';
-            createDeathParticles(player.body.position, player.peerId === myPeerId);
+            createVisualDeathParticles(player.body.position, player.peerId === myPeerId);
             World.remove(world, player.body);
+            player.body = null;
+        }
+        
+        function respawnRemotePlayer(peerId, position) {
+            const player = players.get(peerId);
+            if (!player || player.body) return; // Don't respawn if already has a body
+
+            player.body = Bodies.rectangle(position.x, position.y, 40, 60, {
+                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                collisionFilter: { group: Body.nextGroup(true) }, label: `player_${peerId}`
+            });
+            World.add(world, player.body);
+            Body.setVelocity(player.body, {x: 0, y: 0});
+            player.element.style.opacity = '1';
+            player.isDead = false;
         }
 
-        function createDeathParticles(position, isMyPlayer) {
+        function createVisualDeathParticles(position, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
             for (let i = 0; i < 15; i++) {
-                const particleEl = document.createElement('div');
-                particleEl.className = 'death-particle';
-                worldContainer.appendChild(particleEl);
+                const pEl = document.createElement('div');
+                pEl.className = 'death-particle';
+                worldContainer.appendChild(pEl);
+                
+                let x = position.x + (Math.random() - 0.5) * 20;
+                let y = position.y + (Math.random() - 0.5) * 20;
+                let vx = (Math.random() - 0.5) * 4;
+                let vy = -Math.random() * 8;
+                const gravity = 0.2;
 
-                const particle = Bodies.rectangle(
-                    position.x + (Math.random() - 0.5) * 20,
-                    position.y + (Math.random() - 0.5) * 20,
-                    5, 5, { frictionAir: 0.05, label: 'particle' }
-                );
-                Body.applyForce(particle, particle.position, {
-                    x: (Math.random() - 0.5) * 0.02,
-                    y: -Math.random() * 0.05
-                });
-                World.add(world, particle);
-
-                const updateParticle = () => {
-                    if (World.get(world, particle.id)) {
-                        particleEl.style.left = `${particle.position.x}px`;
-                        particleEl.style.top = `${particle.position.y}px`;
-                        requestAnimationFrame(updateParticle);
-                    }
+                const animate = () => {
+                    vx *= 0.99;
+                    vy += gravity;
+                    x += vx;
+                    y += vy;
+                    pEl.style.left = `${x}px`;
+                    pEl.style.top = `${y}px`;
+                    if (y < worldHeight + 100) requestAnimationFrame(animate);
                 };
-                requestAnimationFrame(updateParticle);
+                animate();
 
-                setTimeout(() => {
-                    World.remove(world, particle);
-                    particleEl.remove();
-                }, 1000 + Math.random() * 500);
+                setTimeout(() => pEl.remove(), 1500);
             }
         }
 
-        function createGlideParticle(player) {
-            if (player.peerId !== myPeerId && !showOtherPlayerParticles) return;
+        function createGlideParticle(position, direction, isMyPlayer) {
+            if (!isMyPlayer && !showOtherPlayerParticles) return;
 
             const particleEl = document.createElement('div');
             particleEl.className = 'wind-particle';
             worldContainer.appendChild(particleEl);
             
-            const xOffset = player.direction === 'right' ? -20 : 20;
-            particleEl.style.left = `${player.body.position.x + xOffset}px`;
-            particleEl.style.top = `${player.body.position.y}px`;
+            const xOffset = direction === 'right' ? -20 : 20;
+            particleEl.style.left = `${position.x + xOffset}px`;
+            particleEl.style.top = `${position.y}px`;
 
             setTimeout(() => particleEl.remove(), 500);
         }
@@ -886,26 +951,20 @@
             let walkFrame = 0;
             let idleTimer = 0;
             let walkTimer = 0;
-            const loopTime = 50; // Run loop every 50ms
+            const loopTime = 50;
 
             animationInterval = setInterval(() => {
                 idleTimer += loopTime;
                 walkTimer += loopTime;
 
-                if (idleTimer >= 500) { // 2 FPS
-                    idleFrame = (idleFrame + 1) % 2;
-                    idleTimer = 0;
-                }
-                
-                if (walkTimer >= 250) { // 4 FPS
-                    walkFrame = (walkFrame + 1) % 4;
-                    walkTimer = 0;
-                }
+                if (idleTimer >= 500) { idleFrame = (idleFrame + 1) % 2; idleTimer = 0; }
+                if (walkTimer >= 250) { walkFrame = (walkFrame + 1) % 4; walkTimer = 0; }
 
                 const idleSrc = `../images/player-idle${idleFrame + 1}.png`;
                 const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
 
                 for (const player of players.values()) {
+                    if (!player.body) continue;
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = player.onGround && speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
@@ -919,8 +978,9 @@
                         sprite.src = idleSrc;
                     }
                     
-                    if (!player.onGround && Math.abs(player.body.velocity.y) > 1) {
-                        createGlideParticle(player);
+                    if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
+                        broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
+                        createGlideParticle(player.body.position, player.direction, true);
                     }
                 }
             }, loopTime);
@@ -930,6 +990,137 @@
             if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
             if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
             return null;
+        }
+
+        // --- Map Editing ---
+        function toggleEditMode() {
+            isEditMode = !isEditMode;
+            editModeBtn.classList.toggle('active', isEditMode);
+            editToolbar.classList.toggle('hidden', !isEditMode);
+            gameViewport.classList.toggle('edit-mode', isEditMode);
+
+            if (isEditMode) {
+                gameViewport.addEventListener('mousedown', handleEditorMouseDown);
+            } else {
+                gameViewport.removeEventListener('mousedown', handleEditorMouseDown);
+                gameViewport.removeEventListener('mousemove', handleEditorMouseMove);
+                gameViewport.removeEventListener('mouseup', handleEditorMouseUp);
+            }
+        }
+
+        function setEditTool(tool) {
+            editTool = tool;
+            addPlatformBtn.classList.toggle('active', tool === 'add');
+            deletePlatformBtn.classList.toggle('active', tool === 'delete');
+            document.querySelectorAll('.dynamic').forEach(el => el.classList.toggle('delete-mode', tool === 'delete'));
+        }
+
+        let startPos = null;
+        let previewEl = null;
+
+        function handleEditorMouseDown(e) {
+            if (editTool === 'add') {
+                const worldCoords = screenToWorld(e.clientX, e.clientY);
+                startPos = worldCoords;
+
+                previewEl = document.createElement('div');
+                previewEl.style.position = 'absolute';
+                previewEl.style.border = '2px dashed var(--accent-color)';
+                previewEl.style.left = `${startPos.x}px`;
+                previewEl.style.top = `${startPos.y}px`;
+                worldContainer.appendChild(previewEl);
+
+                gameViewport.addEventListener('mousemove', handleEditorMouseMove);
+                gameViewport.addEventListener('mouseup', handleEditorMouseUp);
+            } else if (editTool === 'delete') {
+                const target = e.target;
+                if (target.classList.contains('dynamic')) {
+                    const platformId = target.id;
+                    removeDynamicPlatform(platformId);
+                    broadcast({type: 'map-change', action: 'delete', id: platformId});
+                }
+            }
+        }
+
+        function handleEditorMouseMove(e) {
+            if (!startPos || !previewEl) return;
+            const currentCoords = screenToWorld(e.clientX, e.clientY);
+            const w = Math.abs(currentCoords.x - startPos.x);
+            const h = Math.abs(currentCoords.y - startPos.y);
+            const left = Math.min(startPos.x, currentCoords.x);
+            const top = Math.min(startPos.y, currentCoords.y);
+            previewEl.style.width = `${w}px`;
+            previewEl.style.height = `${h}px`;
+            previewEl.style.left = `${left}px`;
+            previewEl.style.top = `${top}px`;
+        }
+
+        function handleEditorMouseUp(e) {
+            const currentCoords = screenToWorld(e.clientX, e.clientY);
+            const w = Math.abs(currentCoords.x - startPos.x);
+            const h = Math.abs(currentCoords.y - startPos.y);
+            
+            if (w > 10 && h > 10) { // Minimum size
+                const left = Math.min(startPos.x, currentCoords.x);
+                const top = Math.min(startPos.y, currentCoords.y);
+                const platformData = {
+                    id: `dynamic_${Date.now()}`,
+                    x: left + w / 2,
+                    y: top + h / 2,
+                    w, h
+                };
+                addDynamicPlatform(platformData);
+                broadcast({type: 'map-change', action: 'add', platformData});
+            }
+
+            previewEl.remove();
+            previewEl = null;
+            startPos = null;
+            gameViewport.removeEventListener('mousemove', handleEditorMouseMove);
+            gameViewport.removeEventListener('mouseup', handleEditorMouseUp);
+        }
+
+        function handleMapChange(data) {
+            if (data.action === 'add') {
+                addDynamicPlatform(data.platformData);
+            } else if (data.action === 'delete') {
+                removeDynamicPlatform(data.id);
+            }
+        }
+
+        function addDynamicPlatform(platformData) {
+            if (dynamicPlatforms.has(platformData.id)) return;
+            const { id, x, y, w, h } = platformData;
+            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
+            World.add(world, body);
+
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'game-object dynamic';
+            el.style.width = `${w}px`;
+            el.style.height = `${h}px`;
+            el.style.left = `${x - w/2}px`;
+            el.style.top = `${y - h/2}px`;
+            worldContainer.appendChild(el);
+            
+            dynamicPlatforms.set(id, { body, element: el, data: platformData });
+            if (editTool === 'delete') el.classList.add('delete-mode');
+        }
+
+        function removeDynamicPlatform(id) {
+            const platform = dynamicPlatforms.get(id);
+            if (platform) {
+                World.remove(world, platform.body);
+                platform.element.remove();
+                dynamicPlatforms.delete(id);
+            }
+        }
+        
+        function screenToWorld(screenX, screenY) {
+            const worldRect = worldContainer.getBoundingClientRect();
+            const x = (screenX - worldRect.left) / cameraScale;
+            const y = (screenY - worldRect.top) / cameraScale;
+            return { x, y };
         }
         
         // --- UI & Utility Functions ---
@@ -969,4 +1160,4 @@
         }
     </script>
 </body>
-</ht
+</html>
