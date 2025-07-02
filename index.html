@@ -49,17 +49,20 @@
         
         #world-container {
             position: absolute;
-            transition: transform 0.2s ease-out;
+            /* Camera transition is handled by JS for smoother following */
         }
 
         .game-object {
             position: absolute;
             background-color: var(--primary-text-color);
+            transform-origin: center center;
         }
         
         .player-object {
             border-radius: 4px;
             transition: border-radius 0.2s ease;
+            /* Player color can be customized here */
+            background-color: var(--accent-color);
         }
         
         .player-name {
@@ -71,6 +74,9 @@
             color: var(--primary-text-color);
             white-space: nowrap;
             font-weight: bold;
+            background-color: rgba(255, 255, 255, 0.7);
+            padding: 2px 5px;
+            border-radius: 4px;
         }
 
         .ui-view {
@@ -86,6 +92,8 @@
             width: 100%;
             height: 100%;
             z-index: 10;
+            text-align: center;
+            padding: 10px;
         }
         
         .hidden { display: none !important; }
@@ -121,6 +129,8 @@
             margin: 5px;
             font-size: 1rem;
             transition: background-color 0.2s ease;
+            width: 80%;
+            max-width: 300px;
         }
         
         .btn:hover { background-color: var(--accent-hover-color); }
@@ -134,21 +144,32 @@
             top: 15px;
             left: 15px;
             z-index: 5;
+            display: flex;
+            gap: 10px;
+        }
+
+        #game-ui .btn {
+            width: auto; /* Override width for in-game buttons */
         }
         
         #status {
-            margin-top: 20px;
+            margin-top: 15px;
             font-size: 1rem;
             text-align: center;
+            height: 40px; /* Reserve space */
         }
         
-        #lobby-code-display {
-            font-size: 1.2rem;
+        #host-info {
+            display: inline-block;
             padding: 8px 12px;
             background: var(--primary-text-color);
             color: var(--background-color);
             border-radius: 6px;
+        }
+
+        #lobby-code-display {
             font-weight: bold;
+            margin-left: 5px;
         }
 
         .loader {
@@ -160,6 +181,38 @@
             animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Custom Message Box */
+        #message-box {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.6); display: flex;
+            align-items: center; justify-content: center; z-index: 20;
+        }
+        #message-box-content {
+            background-color: #fff; color: var(--primary-text-color); padding: 30px;
+            border: 2px solid var(--border-color); border-radius: 8px; text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-width: 90%;
+        }
+        #message-box-ok { margin-top: 20px; width: auto; }
+
+        /* Responsive Design for Mobile */
+        @media (max-width: 600px) {
+            .ui-view h1 {
+                font-size: 1.8rem;
+            }
+            .btn, .input-field {
+                padding: 10px;
+                font-size: 0.9rem;
+            }
+            #game-ui {
+                top: 10px;
+                left: 10px;
+            }
+            #game-ui .btn {
+                padding: 8px 12px;
+                font-size: 0.8rem;
+            }
+        }
 
     </style>
 </head>
@@ -196,7 +249,18 @@
         </div>
     </div>
 
-    <div id="status"></div>
+    <div id="status">
+        <div id="host-info" class="hidden">
+            Lobby Code:<span id="lobby-code-display"></span>
+        </div>
+    </div>
+
+    <div id="message-box" class="hidden">
+        <div id="message-box-content">
+            <p id="message-text"></p>
+            <button id="message-box-ok" class="btn">OK</button>
+        </div>
+    </div>
 
     <script>
         // --- Matter.js Aliases ---
@@ -224,25 +288,27 @@
         const gameUi = document.getElementById('game-ui');
         const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
         const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
+        const hostInfoDiv = document.getElementById('host-info');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
         document.getElementById('join-lobby-btn').addEventListener('click', () => handleLobbyAction(false));
         document.getElementById('show-join-view-btn').addEventListener('click', showJoinView);
         document.getElementById('back-to-main-btn').addEventListener('click', showMainView);
+        document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
             const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
-            if (!username) { alert('Please enter a username.'); return; }
+            if (!username) { showMessage('Please enter a username.'); return; }
 
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
             } else {
                 lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
-                if (!lobbyCode || lobbyCode.length !== 8) { alert('Please enter a valid 8-digit lobby code.'); return; }
+                if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
             
             showLoadingScreen(isCreating);
@@ -257,8 +323,6 @@
                 console.log('PeerJS connection open. My ID:', myPeerId);
                 
                 // --- Start Game ---
-                loginView.classList.add('hidden');
-                joinView.classList.add('hidden');
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
                 
@@ -272,6 +336,8 @@
                 document.addEventListener('keyup', handleKeyUp);
 
                 if (isHost) {
+                    document.getElementById('lobby-code-display').textContent = lobbyCode;
+                    hostInfoDiv.classList.remove('hidden');
                     updateLobbyControls();
                 } else {
                     connectToPeer(LOBBY_PREFIX + lobbyCode);
@@ -285,7 +351,7 @@
             conn.on('open', () => {
                 connections.set(conn.peer, conn);
                 console.log(`Connection established with ${conn.peer}. Total connections: ${connections.size}`);
-                updateLobbyControls();
+                if (isHost) updateLobbyControls();
 
                 if (isHost) {
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
@@ -310,7 +376,7 @@
             console.log(`Connection closed with ${peerId}`);
             connections.delete(peerId);
             removePlayer(peerId);
-            updateLobbyControls();
+            if (isHost) updateLobbyControls();
             broadcast({ type: 'player-leave', peerId });
         }
 
@@ -323,19 +389,19 @@
         
         function leaveLobby() {
             if (peer) {
-                peer.destroy(); // This closes all connections and disconnects from the server
+                peer.destroy();
             }
-            // Reset game state
-            World.clear(world);
-            Engine.clear(engine);
-            Runner.stop(runner);
+            if (runner) Runner.stop(runner);
+            if (engine) Engine.clear(engine);
+            
             players.clear();
             connections.clear();
-            worldContainer.innerHTML = ''; // Clear DOM elements
+            gameObjects.clear();
+            worldContainer.innerHTML = '';
             isHost = false;
             
-            // Reset UI
             gameUi.classList.add('hidden');
+            hostInfoDiv.classList.add('hidden');
             showMainView();
         }
 
@@ -365,7 +431,6 @@
             Events.on(engine, 'afterUpdate', () => {
                 updatePlayerElements();
                 updateCamera();
-                // Broadcast our state at a fixed interval
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                      broadcast({
@@ -381,12 +446,11 @@
 
         function createWorldBounds() {
             const thickness = 200;
-            createStaticObject(worldWidth / 2, worldHeight + thickness/2, worldWidth, thickness, 'ground'); // Floor
-            createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling'); // Ceiling
-            createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall'); // Left Wall
-            createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall'); // Right Wall
+            createStaticObject(worldWidth / 2, worldHeight + thickness/2, worldWidth, thickness, 'ground');
+            createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling');
+            createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
+            createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
-            // Add some platforms
             createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
             createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
             createStaticObject(1500, worldHeight - 250, 300, 30, 'platform3');
@@ -394,7 +458,7 @@
         }
 
         function createStaticObject(x, y, w, h, id) {
-            const body = Bodies.rectangle(x, y, w, h, { isStatic: true });
+            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5 });
             World.add(world, body);
             
             const el = document.createElement('div');
@@ -413,9 +477,7 @@
             if (players.has(peerId)) return;
             
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity, // Prevents rotation
-                frictionAir: 0.02,
-                friction: 0.1
+                inertia: Infinity, frictionAir: 0.02, friction: 0.1
             });
             World.add(world, playerBody);
 
@@ -456,11 +518,13 @@
         function updatePlayerElements() {
             for (const player of players.values()) {
                 const { position, angle } = player.body;
-                player.element.style.width = `${player.body.bounds.max.x - player.body.bounds.min.x}px`;
-                player.element.style.height = `${player.body.bounds.max.y - player.body.bounds.min.y}px`;
-                player.element.style.transform = `translate(${position.x - player.body.bounds.min.x + player.body.position.x}px, ${position.y - player.body.bounds.min.y + player.body.position.y}px) translate(-50%, -50%) rotate(${angle}rad)`;
+                const width = player.body.bounds.max.x - player.body.bounds.min.x;
+                const height = player.body.bounds.max.y - player.body.bounds.min.y;
+                player.element.style.width = `${width}px`;
+                player.element.style.height = `${height}px`;
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
+                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
             }
         }
         
@@ -473,18 +537,14 @@
             const oldBody = player.body;
             let newBody;
             
-            if (shouldBeTransformed) { // Transform to ball
+            if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
-                    frictionAir: 0.005,
-                    friction: 0.01,
-                    restitution: 0.5
+                    frictionAir: 0.005, friction: 0.01, restitution: 0.5
                 });
                 player.element.style.borderRadius = '50%';
-            } else { // Transform back to rectangle
+            } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
-                    inertia: Infinity,
-                    frictionAir: 0.02,
-                    friction: 0.1
+                    inertia: Infinity, frictionAir: 0.02, friction: 0.1
                 });
                 player.element.style.borderRadius = '4px';
             }
@@ -495,9 +555,7 @@
             player.body = newBody;
             player.isTransformed = shouldBeTransformed;
             
-            if (isMyPlayer) {
-                isTransformed = shouldBeTransformed;
-            }
+            if (isMyPlayer) isTransformed = shouldBeTransformed;
         }
 
         // --- Camera & Input ---
@@ -523,32 +581,32 @@
             if (!myPlayer) return;
             const body = myPlayer.body;
 
-            // Movement
             const moveForce = isTransformed ? 0.002 : 0.005;
             if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
             if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
 
-            // Jump
             if (e.code === 'Space' && e.type === 'keydown') {
-                // A simple check to prevent air-jumping
                 if (!isTransformed && Math.abs(body.velocity.y) < 0.1) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.2 });
                 }
             }
             
-            // Transform
             if (e.code === 'KeyB' && e.type === 'keydown') {
                 togglePlayerTransformation(myPlayer);
             }
         }
         
         // --- UI & Utility Functions ---
+        function showMessage(message) {
+            document.getElementById('message-text').textContent = message;
+            document.getElementById('message-box').classList.remove('hidden');
+        }
         function showLoadingScreen(isCreating) {
             loginView.classList.add('hidden');
             joinView.classList.add('hidden');
             loadingView.classList.remove('hidden');
             document.getElementById('loading-title').textContent = isCreating ? 'Creating Lobby...' : 'Joining Lobby...';
-            document.getElementById('loading-code-display').textContent = lobbyCode;
+            document.getElementById('loading-code-display').textContent = lobbyCode || '';
         }
         function showJoinView() {
             loginView.classList.add('hidden');
@@ -567,8 +625,8 @@
         }
         function handleError(err) {
             console.error('PeerJS error:', err);
-            alert(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
-            leaveLobby(); // Reset everything on error
+            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
+            leaveLobby();
         }
         function generateLobbyCode() {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -576,4 +634,3 @@
     </script>
 </body>
 </html>
-
