@@ -10,18 +10,18 @@
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
 
         :root {
-            --background-color: #f0f0f0; 
-            --primary-text-color: #1a1a1a; 
-            --border-color: #cccccc; 
-            --surface-color: #ffffff; 
-            --accent-color: #007bff; 
+            --background-color: #f0f0f0; /* Light grey background */
+            --primary-text-color: #1a1a1a; /* Dark text */
+            --border-color: #cccccc; /* Lighter border */
+            --surface-color: #ffffff; /* White surfaces */
+            --accent-color: #007bff; /* A nice blue */
             --accent-hover-color: #0056b3;
             --secondary-color: #6c757d;
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
             --off-screen-indicator-color: #007bff;
-            --stamina-bar-color: #28a745;
+            --stamina-bar-color: #28a745; /* Green for stamina */
         }
 
         body {
@@ -33,7 +33,7 @@
         }
 
         #game-viewport {
-            background-color: var(--background-color);
+            background-color: var(--background-color); /* Grey background for the game world */
             width: 100vw;
             height: 100vh;
             position: relative;
@@ -43,52 +43,78 @@
         
         #world-container {
             position: absolute;
-            transition: transform 0.1s linear; /* Default camera follow speed */
-        }
-
-        /* Class for smooth respawn camera animation */
-        #world-container.respawning {
-            transition: transform 2.0s cubic-bezier(0.45, 0, 0.55, 1);
+            transition: transform 0.1s linear;
         }
 
         .game-object {
             position: absolute;
-            background-color: var(--surface-color); 
+            background-color: var(--surface-color); /* White floor */
             border: 1px solid var(--border-color);
             transform-origin: center center;
         }
         
         .player-object {
-            background-color: transparent;
-            border: none;
-            transition: border-radius 0.2s ease, opacity 0.2s ease, visibility 0s;
+            background-color: transparent; /* Player container is invisible */
+            border: none; /* No border for the player container itself */
+            transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s; /* Added delay for fade in */
             z-index: 10;
-        }
-        .player-object.dead {
-             visibility: hidden;
-             transition: visibility 0s linear 0.1s; /* Hide after a tiny delay */
-        }
-
-
-        .death-particle, .wind-particle {
-            position: absolute;
-            pointer-events: none;
-            z-index: 15;
-        }
-        
-        .death-particle {
-            background-color: #1a1a1a;
-            width: 8px;
-            height: 8px;
+            transform-style: preserve-3d;
         }
 
         .wind-particle {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 15;
             background-color: rgba(0, 0, 0, 0.5);
             width: 8px;
             height: 8px;
-            border-radius: 50%;
             animation: fadeOut 0.5s forwards;
         }
+
+        .respawn-particle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: black;
+            pointer-events: none;
+            z-index: 20;
+            animation: spurt 0.7s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
+        }
+
+        .spawn-in-particle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: black;
+            pointer-events: none;
+            z-index: 20;
+            animation: converge forwards;
+            animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.2); /* Ease-in curve */
+        }
+        
+        @keyframes spurt {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0) translate(var(--translateX), var(--translateY));
+                opacity: 0;
+            }
+        }
+
+        @keyframes converge {
+            from {
+                transform: translate(var(--translateX), var(--translateY)) scale(1.5);
+                opacity: 1;
+            }
+            to {
+                transform: translate(0, 0) scale(0);
+                opacity: 0.5;
+            }
+        }
+
         @keyframes fadeOut {
             to {
                 opacity: 0;
@@ -96,11 +122,29 @@
             }
         }
 
+        .player-sprite-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.4s;
+        }
+        
         .player-sprite {
             width: 100%;
             height: 100%;
             object-fit: contain;
             image-rendering: pixelated;
+            position: absolute;
+            backface-visibility: hidden;
+        }
+
+        .player-sprite.front {
+            transform: rotateY(0deg);
+        }
+        
+        .player-sprite.back {
+            transform: rotateY(180deg);
         }
         
         .player-name {
@@ -201,7 +245,7 @@
             left: 15px;
             z-index: 25;
             display: flex;
-            flex-direction: column;
+            flex-direction: column; /* Changed to column for stamina bar */
             gap: 10px;
         }
 
@@ -350,7 +394,7 @@
         }
         .off-screen-name {
             position: absolute;
-            top: 20px; 
+            top: 20px; /* Position below the arrow */
             font-size: 12px;
             font-weight: bold;
             color: white;
@@ -425,25 +469,27 @@
     </div>
 
     <script>
+        // --- Matter.js Aliases ---
         const { Engine, Render, Runner, World, Bodies, Body, Events, Vector, Composite, Detector } = Matter;
 
+        // --- Game & Physics State ---
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const deathParticles = [];
         const worldWidth = 50000;
         const worldHeight = 10000;
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
         let sprintParticleTimer = 0;
-        const SPRINT_PARTICLE_INTERVAL = 100;
-        let isRespawningCamera = false;
+        const SPRINT_PARTICLE_INTERVAL = 100; // ms
 
+        // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
 
+        // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
         const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
@@ -458,6 +504,7 @@
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
 
+        // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
         document.getElementById('join-lobby-btn').addEventListener('click', () => handleLobbyAction(false));
         document.getElementById('show-join-view-btn').addEventListener('click', showJoinView);
@@ -470,28 +517,37 @@
             isHost = isCreating;
             const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
             if (!username) { showMessage('Please enter a username.'); return; }
+
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
             } else {
                 lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
                 if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
+            
             showLoadingScreen(isCreating);
             initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
+        // --- PeerJS Initialization & Lobby Logic ---
         function initializePeer(username, requestedId) {
             peer = new Peer(requestedId, {});
             peer.on('open', id => {
                 myPeerId = id;
+                console.log('PeerJS connection open. My ID:', myPeerId);
+                
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
+                
                 initPhysics();
                 createWorld();
+                
                 const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
                 createPlayer(myPeerId, username, startPos);
+                
                 setupInputControls();
                 startAnimationLoop();
+
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
@@ -507,12 +563,16 @@
         function setupConnection(conn) {
             conn.on('open', () => {
                 connections.set(conn.peer, conn);
-                if (isHost) updateLobbyControls();
+                if (isHost) {
+                    updateLobbyControls();
+                }
+
                 if (isHost) {
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
                     conn.send({ type: 'lobby-roster', peers: allPeerIds });
                     broadcast({ type: 'new-peer-announcement', peerId: conn.peer }, conn.peer);
                 }
+                
                 const myPlayer = players.get(myPeerId);
                 conn.send({
                     type: 'player-update',
@@ -545,27 +605,26 @@
             if (runner) Runner.stop(runner);
             if (engine) Engine.clear(engine);
             if (animationInterval) clearInterval(animationInterval);
+            
             players.clear();
             connections.clear();
             gameObjects.clear();
-            deathParticles.forEach(p => { if(p.element) p.element.remove(); });
-            deathParticles.length = 0;
             worldContainer.innerHTML = '';
             offScreenIndicatorsContainer.innerHTML = '';
             isHost = false;
+            
             gameUi.classList.add('hidden');
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             showMainView();
         }
 
+        // --- Data Handling ---
         function handleData(data, peerId) {
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
                 case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
-                case 'player-died': handlePlayerDeath(data.peerId, data.position); break;
-                case 'player-respawned': handlePlayerRespawn(data.peerId, data.position); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -577,26 +636,29 @@
             }
         }
 
-        let camera = { x: 0, y: 0 };
+        // --- Physics & Game World ---
+        let camera = { x: 0, y: 0, scale: 1, targetScale: 1};
         function initPhysics() {
             engine = Engine.create({ gravity: { y: 1 } });
             world = engine.world;
             runner = Runner.create();
             Runner.run(runner, engine);
+            
             let lastTime = performance.now();
             Events.on(engine, 'afterUpdate', (event) => {
                 const currentTime = performance.now();
                 const deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
+
                 processPlayerInput(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
-                updateAndCleanParticles();
+
                 const myPlayer = players.get(myPeerId);
-                if (myPlayer && myPlayer.body && !myPlayer.isDead) {
-                     broadcast({
+                if (myPlayer && myPlayer.body) {
+                    broadcast({
                         type: 'player-update',
                         peerId: myPeerId,
                         position: myPlayer.body.position,
@@ -606,16 +668,18 @@
                     });
                 }
             });
+
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
                     const playerBody = getPlayerBodyFromPair(pair);
                     if (!playerBody) continue;
+
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
+
                     if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
                         player.onGround = true;
-                        player.isJumping = false;
                     }
                 }
             });
@@ -629,6 +693,7 @@
         function createStaticObject(x, y, w, h, id, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
             World.add(world, body);
+            
             const el = document.createElement('div');
             el.id = id;
             el.className = `game-object ${className}`;
@@ -640,8 +705,10 @@
             gameObjects.set(id, { body, element: el });
         }
         
-        function createPlayer(peerId, username, position) {
+        // --- Player Management ---
+        function createPlayer(peerId, username, position, isInitialSpawn = false) {
             if (players.has(peerId)) return;
+            
             const collisionGroup = Body.nextGroup(true);
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
@@ -649,24 +716,48 @@
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
+
             const playerEl = document.createElement('div');
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `<img src="../images/player-idle1.png" class="player-sprite" alt="Player"><div class="player-name">${username}</div>`;
+            playerEl.innerHTML = `
+                <div class="player-sprite-wrapper">
+                    <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
+                    <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
+                </div>
+                <div class="player-name">${username}</div>
+            `;
+            // If not the initial spawn (i.e., a respawn), start transparent
+            if (!isInitialSpawn) {
+                playerEl.style.opacity = '0';
+            }
             worldContainer.appendChild(playerEl);
+
+
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
             indicatorEl.className = 'off-screen-indicator';
             indicatorEl.style.opacity = '0';
-            indicatorEl.innerHTML = `<div class="off-screen-arrow"></div><div class="off-screen-name">${username}</div>`;
+            indicatorEl.innerHTML = `
+                <div class="off-screen-arrow"></div>
+                <div class="off-screen-name">${username}</div>
+            `;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
-            players.set(peerId, { 
+            
+            const player = { 
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
-                staminaDrainRate: 25, staminaRegenRate: 15,
-                isJumping: false, jumpTime: 0, maxJumpTime: 250, jumpStaminaDrainRate: 50 
-            });
+                staminaDrainRate: 25, staminaRegenRate: 15
+            };
+            players.set(peerId, player);
+
+            // Force the opacity to 1 after a short delay to trigger the transition
+             if (!isInitialSpawn) {
+                setTimeout(() => {
+                    playerEl.style.opacity = '1';
+                }, 100);
+            }
         }
 
         function removePlayer(peerId) {
@@ -682,13 +773,22 @@
         function updatePlayer(data) {
             let player = players.get(data.peerId);
             if (!player) {
-                createPlayer(data.peerId, data.username, data.position);
+                createPlayer(data.peerId, data.username, data.position, true);
                 player = players.get(data.peerId);
             }
+            
             if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
-                player.direction = data.direction || 'right';
+
+                if (player.direction !== data.direction) {
+                    player.direction = data.direction || 'right';
+                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+                    if (spriteWrapper) {
+                        spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+                    }
+                }
+
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
                 }
@@ -699,6 +799,7 @@
             for (const player of players.values()) {
                 if (!player.body) continue;
                 const { position, angle } = player.body;
+
                 if (!player.isTransformed) {
                     player.element.style.width = `40px`;
                     player.element.style.height = `60px`;
@@ -707,81 +808,93 @@
                     player.element.style.width = `${diameter}px`;
                     player.element.style.height = `${diameter}px`;
                 }
+
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
-                const sprite = player.element.querySelector('.player-sprite');
-                if (sprite) {
-                    const scaleX = player.direction === 'left' ? -1 : 1;
-                    sprite.style.transform = `scaleX(${scaleX})`;
-                }
             }
         }
         
         function togglePlayerTransformation(player, forceState) {
             const isMyPlayer = player.peerId === myPeerId;
             const shouldBeTransformed = forceState !== undefined ? forceState : !player.isTransformed;
+
             if (player.isTransformed === shouldBeTransformed) return;
+            
             const oldBody = player.body;
             let newBody;
-            const sprite = player.element.querySelector('.player-sprite');
+            const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+            
             if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
                     frictionAir: 0.005, friction: 0.01, restitution: 0.5,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '50%';
-                if(sprite) sprite.style.display = 'none';
+                if(spriteWrapper) spriteWrapper.style.display = 'none';
             } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
                     inertia: Infinity, frictionAir: 0.02, friction: 0.1,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '0';
-                if(sprite) sprite.style.display = 'block';
+                if(spriteWrapper) spriteWrapper.style.display = 'block';
             }
+            
             Body.setVelocity(newBody, oldBody.velocity);
             World.remove(world, oldBody);
             World.add(world, newBody);
             player.body = newBody;
             player.isTransformed = shouldBeTransformed;
+            
             if (isMyPlayer) isTransformed = shouldBeTransformed;
         }
 
+        // --- Camera, Input & Animation ---
         function updateCamera() {
-            if (isRespawningCamera) return; // Halt camera updates during respawn sequence
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
+
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-            const targetX = -x + viewportWidth / 2;
-            const targetY = -y + viewportHeight / 2;
+
+            camera.scale += (camera.targetScale - camera.scale) * 0.1;
+            
+            const targetX = -x * camera.scale + viewportWidth / 2;
+            const targetY = -y * camera.scale + viewportHeight / 2;
+            
             camera.x = x;
             camera.y = y;
-            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(1)`;
+
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${camera.scale})`;
         }
 
         function updateOffScreenIndicators() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
+
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
             const padding = 40; 
+
             for (const otherPlayer of players.values()) {
-                if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) {
-                    otherPlayer.indicator.style.opacity = '0';
-                    continue;
-                }
+                if (otherPlayer.peerId === myPeerId || !otherPlayer.body) continue;
+
                 const targetPos = otherPlayer.body.position;
                 const screenX = (targetPos.x - camera.x) + viewportWidth / 2;
                 const screenY = (targetPos.y - camera.y) + viewportHeight / 2;
+
                 const isOffScreen = screenX < padding || screenX > viewportWidth - padding || screenY < padding || screenY > viewportHeight - padding;
-                if (isOffScreen) {
+
+                if (isOffScreen && !otherPlayer.isDead) {
                     otherPlayer.indicator.style.opacity = '1';
+
                     const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
                     const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
+                    
                     const angle = Math.atan2(targetPos.y - camera.y, targetPos.x - camera.x);
+                    
                     otherPlayer.indicator.style.left = `${clampedX}px`;
                     otherPlayer.indicator.style.top = `${clampedY}px`;
                     otherPlayer.indicator.style.transform = `translate(-50%, -50%) rotate(${angle + Math.PI / 2}rad)`;
@@ -794,10 +907,15 @@
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
+
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+
+            // Regenerate stamina only if not trying to sprint (key is up) and not currently sprinting
             if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
+
+            // Update the UI
             const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
             staminaBar.style.width = `${staminaPercentage}%`;
         }
@@ -807,60 +925,49 @@
         function setupInputControls() {
             if ('ontouchstart' in window) {
                 mobileControls.classList.remove('hidden');
+                setupMobileControls();
             } else {
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
             }
         }
 
-        function handleKeyDown(e) { 
-            keys[e.code] = true; 
-            handleSinglePressInput(e); 
-        }
-        function handleKeyUp(e) {
-            keys[e.code] = false;
-            const myPlayer = players.get(myPeerId);
-            if (myPlayer && (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp')) {
-                myPlayer.isJumping = false;
-            }
-        }
+        function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
+        function handleKeyUp(e) { keys[e.code] = false; }
         
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
+
             const body = myPlayer.body;
-            const isHoldingJump = keys['Space'] || keys['KeyW'] || keys['ArrowUp'];
-            if (myPlayer.isJumping && isHoldingJump && myPlayer.currentStamina > 0 && myPlayer.jumpTime < myPlayer.maxJumpTime) {
-                const jumpProgress = myPlayer.jumpTime / myPlayer.maxJumpTime;
-                const forceDecayMultiplier = 1 - jumpProgress;
-                const baseJumpForce = -0.0055;
-                const appliedForceY = baseJumpForce * forceDecayMultiplier;
-                Body.applyForce(body, body.position, { x: 0, y: appliedForceY });
-                myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.jumpStaminaDrainRate * (deltaTime / 1000));
-                myPlayer.jumpTime += deltaTime;
-            } else {
-                myPlayer.isJumping = false;
-            }
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
-            myPlayer.isSprinting = false; 
+
+            myPlayer.isSprinting = false; // Reset every frame
+
             if (myPlayer.isTransformed) {
                 const moveForce = 0.001;
                 if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
                 if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
+                if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
+                if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
             } else {
                 let moveSpeed = 5;
+
                 if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
-                    moveSpeed = 9;
+                    moveSpeed = 9; // Faster speed
                     myPlayer.isSprinting = true;
                     myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
+                    
                     sprintParticleTimer += deltaTime;
                     if (sprintParticleTimer >= SPRINT_PARTICLE_INTERVAL) {
                         broadcast({type: 'glide-particle', position: myPlayer.body.position, direction: myPlayer.direction});
                         createWindParticle(myPlayer.body.position, myPlayer.direction, true);
                         sprintParticleTimer = 0;
                     }
+
                 }
+
                 if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                     myPlayer.direction = 'left';
@@ -875,62 +982,99 @@
 
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer) return;
-            if (e.code === 'R') {
-                if (!myPlayer.isDead && !isRespawningCamera) {
-                    initiateRespawn(myPlayer);
-                }
-                return; // Prevent other actions while respawning
-            }
-            if (myPlayer.isDead) return;
+            if (!myPlayer || myPlayer.isDead) return;
+            const body = myPlayer.body;
+
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: -7 });
-                     myPlayer.onGround = false;
-                     myPlayer.isJumping = true;
-                     myPlayer.jumpTime = 0;
+                    // Reduced jump force
+                    Body.applyForce(body, body.position, { x: 0, y: -0.15 });
+                    myPlayer.onGround = false;
                 }
             }
+            
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
+            if (e.code === 'KeyR') {
+                respawnPlayer();
+            }
+        }
+
+        function setupMobileControls() {
+            // Mobile controls logic can be expanded here
         }
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
+
             const particleEl = document.createElement('div');
             particleEl.className = 'wind-particle';
             worldContainer.appendChild(particleEl);
+            
             const xOffset = direction === 'right' ? -20 : 20;
             particleEl.style.left = `${position.x + xOffset}px`;
             particleEl.style.top = `${position.y}px`;
+
             setTimeout(() => particleEl.remove(), 500);
         }
 
         function startAnimationLoop() {
-            let idleFrame = 0, walkFrame = 0, animTimer = 0;
-            const loopTime = 50; 
-            const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
+            let idleFrame = 0;
+            let walkFrame = 0;
+            let animTimer = 0;
+            const loopTime = 50; // Run loop every 50ms
+
+            const IDLE_FPS = 2;
+            const WALK_FPS = 8;
+            const SPRINT_FPS = 14; // Faster animation for sprinting
+
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
+
                 for (const player of players.values()) {
-                    if (!player.body || player.isTransformed || player.isDead) continue;
+                    if (!player.body || player.isTransformed) continue;
+                    
                     const speed = Vector.magnitude(player.body.velocity);
+                    // UPDATED: Walking animation is now based on speed, not being on the ground
                     player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
-                    const sprite = player.element.querySelector('.player-sprite');
-                    if (!sprite) continue;
+
+                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+                    if (!spriteWrapper) continue;
+
+                    const sprites = player.element.querySelectorAll('.player-sprite');
+                    if(sprites.length < 2) continue;
+
                     let currentFps = IDLE_FPS;
-                    if (player.isSprinting) currentFps = SPRINT_FPS;
-                    else if (player.isWalking) currentFps = WALK_FPS;
-                    const frameDuration = 1000 / currentFps;
-                    if (animTimer >= frameDuration) {
-                        if(player.isWalking || player.isSprinting) walkFrame = (walkFrame + 1) % 4;
-                        else idleFrame = (idleFrame + 1) % 2;
-                        animTimer = 0;
+                    if (player.isSprinting) {
+                        currentFps = SPRINT_FPS;
+                    } else if (player.isWalking) {
+                        currentFps = WALK_FPS;
                     }
-                    if (player.isSprinting || player.isWalking) sprite.src = `../images/player-walk${walkFrame + 1}.png`;
-                    else sprite.src = `../images/player-idle${idleFrame + 1}.png`;
+
+                    const frameDuration = 1000 / currentFps;
+                    
+                    if (animTimer >= frameDuration) {
+                        if(player.isWalking || player.isSprinting) {
+                            walkFrame = (walkFrame + 1) % 4;
+                        } else {
+                            idleFrame = (idleFrame + 1) % 2;
+                        }
+                        animTimer = 0; // Reset timer only when frame changes
+                    }
+
+                    let currentSpritePath;
+                    if (player.isSprinting || player.isWalking) {
+                        currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
+                    } else { // isIdle
+                        currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
+                    }
+
+                    sprites[0].src = currentSpritePath;
+                    sprites[1].src = currentSpritePath;
+                    
+                    // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
                         createWindParticle(player.body.position, player.direction, true);
@@ -945,93 +1089,82 @@
             return null;
         }
 
-        function initiateRespawn(player) {
-            isRespawningCamera = true;
-            const deathPos = { ...player.body.position };
-            const spawnPos = { x: worldWidth / 2, y: worldHeight - 200 };
-            const viewportWidth = gameViewport.clientWidth;
-            const viewportHeight = gameViewport.clientHeight;
-            const zoomScale = 0.4;
-            
-            broadcast({ type: 'player-died', peerId: player.peerId, position: deathPos });
-            handlePlayerDeath(player.peerId, deathPos);
-
-            // Set the long transition and pan to the spawn point while zoomed out
-            worldContainer.classList.add('respawning');
-            const targetX = -spawnPos.x * zoomScale + viewportWidth / 2;
-            const targetY = -spawnPos.y * zoomScale + viewportHeight / 2;
-            worldContainer.style.transform = `scale(${zoomScale}) translate(${targetX}px, ${targetY}px)`;
-            
-            // After the pan/zoom-out is complete, respawn the player and zoom back in
-            setTimeout(() => {
-                broadcast({ type: 'player-respawned', peerId: player.peerId, position: spawnPos });
-                handlePlayerRespawn(player.peerId, spawnPos);
-                
-                const finalX = -spawnPos.x + viewportWidth / 2;
-                const finalY = -spawnPos.y + viewportHeight / 2;
-                worldContainer.style.transform = `scale(1) translate(${finalX}px, ${finalY}px)`;
-
-                // After the zoom-in animation finishes, reset camera state
-                setTimeout(() => {
-                    worldContainer.classList.remove('respawning');
-                    isRespawningCamera = false;
-                }, 2000); // Must match the CSS transition duration
-            }, 2000); // The delay before respawning
-        }
-
-        function handlePlayerDeath(peerId, position) {
-            const player = players.get(peerId);
-            if (!player) return;
-            player.isDead = true;
-            player.element.classList.add('dead');
-            Body.setStatic(player.body, true); // Immobilize the physics body
-            createDeathParticles(position, 25);
-        }
-
-        function handlePlayerRespawn(peerId, position) {
-            const player = players.get(peerId);
-            if (!player) return;
-            player.isDead = false;
-            player.element.classList.remove('dead');
-            Body.setStatic(player.body, false); // Make body dynamic again
-            Body.setPosition(player.body, position);
-            Body.setVelocity(player.body, { x: 0, y: 0 });
-            player.currentStamina = player.maxStamina;
-        }
-
-        function createDeathParticles(position, count) {
-            for (let i = 0; i < count; i++) {
-                const particleEl = document.createElement('div');
-                particleEl.className = 'death-particle';
-                worldContainer.appendChild(particleEl);
-                const particleBody = Bodies.rectangle(position.x, position.y, 8, 8, {
-                    frictionAir: 0.01, restitution: 0.4
-                });
-                Body.setVelocity(particleBody, {
-                    x: (Math.random() - 0.5) * 20,
-                    y: (Math.random() - 0.5) * 20 - 5
-                });
-                World.add(world, particleBody);
-                deathParticles.push({ element: particleEl, body: particleBody });
+        function createRespawnParticles(position) {
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'respawn-particle';
+                const angle = Math.random() * 2 * Math.PI;
+                const distance = Math.random() * 100 + 50; // Increased distance for a bigger explosion
+                particle.style.setProperty('--translateX', `${Math.cos(angle) * distance}px`);
+                particle.style.setProperty('--translateY', `${Math.sin(angle) * distance}px`);
+                particle.style.left = `${position.x}px`;
+                particle.style.top = `${position.y}px`;
+                worldContainer.appendChild(particle);
+                setTimeout(() => particle.remove(), 700);
             }
+        }
+
+        function createSpawnInParticles(position) {
+            const particleCount = 40;
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'spawn-in-particle';
+
+                const angle = Math.random() * 2 * Math.PI;
+                const initialDist = Math.random() * 200 + 100; // Start further out
+                
+                const startX = Math.cos(angle) * initialDist;
+                const startY = Math.sin(angle) * initialDist;
+
+                particle.style.setProperty('--translateX', `${startX}px`);
+                particle.style.setProperty('--translateY', `${startY}px`);
+
+                // Particles that start further away get a slightly longer animation duration,
+                // making them appear to move faster to catch up.
+                const duration = 0.5 + (initialDist / 300) * 0.3; // Base duration + distance factor
+                particle.style.animationDuration = `${duration}s`;
+
+                particle.style.left = `${position.x}px`;
+                particle.style.top = `${position.y}px`;
+                
+                worldContainer.appendChild(particle);
+                setTimeout(() => particle.remove(), duration * 1000);
+            }
+        }
+
+        function respawnPlayer() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+
+            const oldPosition = { ...myPlayer.body.position };
+            const currentUsername = myPlayer.username; // Save username before removing
+            
+            createRespawnParticles(oldPosition);
+            
+            removePlayer(myPeerId);
+            
+            worldContainer.style.transition = 'transform 2s ease-in-out';
+            camera.targetScale = 0.5;
+            
+            setTimeout(() => {
+                const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200};
+                
+                // Spawn-in particle effect
+                createSpawnInParticles(newSpawnPosition);
+
+                setTimeout(() => {
+                    // Create player with the saved username, not as an initial spawn
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false); 
+                    
+                    camera.targetScale = 1.0;
+                    setTimeout(() => {
+                        worldContainer.style.transition = 'transform 0.1s linear';
+                    }, 500);
+                }, 500); // Wait for spawn-in particles to converge
+            }, 1000);
         }
         
-        function updateAndCleanParticles() {
-            const viewportHeight = gameViewport.clientHeight;
-            const viewBottom = camera.y + viewportHeight / 2;
-
-            for (let i = deathParticles.length - 1; i >= 0; i--) {
-                const particle = deathParticles[i];
-                particle.element.style.left = `${particle.body.position.x}px`;
-                particle.element.style.top = `${particle.body.position.y}px`;
-                if (particle.body.position.y > viewBottom + 300) { // Check if far below the camera view
-                    World.remove(world, particle.body);
-                    particle.element.remove();
-                    deathParticles.splice(i, 1);
-                }
-            }
-        }
-
+        // --- UI & Utility Functions ---
         function showMessage(message) {
             document.getElementById('message-text').textContent = message;
             document.getElementById('message-box').classList.remove('hidden');
