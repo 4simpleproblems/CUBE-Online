@@ -568,7 +568,7 @@
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
-                case 'glide-particle': createWindParticle(data.position, data.direction, false); break; // Updated
+                case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -833,8 +833,10 @@
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
 
-            // Regenerate stamina if not sprinting
-            if (!myPlayer.isSprinting) {
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+
+            // Regenerate stamina only if not trying to sprint (key is up) and not currently sprinting
+            if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
 
@@ -880,7 +882,7 @@
                 if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
                     moveSpeed = 9; // Faster speed
                     myPlayer.isSprinting = true;
-                    myPlayer.currentStamina -= myPlayer.staminaDrainRate * (deltaTime / 1000);
+                    myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
                     
                     sprintParticleTimer += deltaTime;
                     if (sprintParticleTimer >= SPRINT_PARTICLE_INTERVAL) {
@@ -956,7 +958,8 @@
                     if (!player.body || player.isTransformed) continue;
                     
                     const speed = Vector.magnitude(player.body.velocity);
-                    player.isWalking = player.onGround && speed > 0.5;
+                    // UPDATED: Walking animation is now based on speed, not being on the ground
+                    player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
 
                     const sprite = player.element.querySelector('.player-sprite');
@@ -970,7 +973,6 @@
                     }
 
                     const frameDuration = 1000 / currentFps;
-                    const totalFrames = (player.isWalking || player.isSprinting) ? 4 : 2;
                     
                     if (animTimer >= frameDuration) {
                         if(player.isWalking || player.isSprinting) {
@@ -987,6 +989,7 @@
                         sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
+                    // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
                         createWindParticle(player.body.position, player.direction, true);
