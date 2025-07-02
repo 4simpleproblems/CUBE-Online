@@ -435,6 +435,7 @@
             Runner.run(runner, engine);
             
             Events.on(engine, 'afterUpdate', () => {
+                processPlayerInput(); // Handle continuous movement
                 updatePlayerElements();
                 updateCamera();
                 const myPlayer = players.get(myPeerId);
@@ -561,8 +562,15 @@
 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
-                const scaleX = player.direction === 'left' ? -1 : 1;
-                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad) scaleX(${scaleX})`;
+                // Apply rotation to the main container
+                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+                
+                // Apply flip only to the sprite image
+                const sprite = player.element.querySelector('.player-sprite');
+                if (sprite) {
+                    const scaleX = player.direction === 'left' ? -1 : 1;
+                    sprite.style.transform = `scaleX(${scaleX})`;
+                }
             }
         }
         
@@ -614,31 +622,55 @@
         }
 
         const keys = {};
-        function handleKeyDown(e) { keys[e.code] = true; handlePlayerInput(e); }
+        function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
         function handleKeyUp(e) { keys[e.code] = false; }
+        
+        // Handles continuous input like movement
+        function processPlayerInput() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer || myPlayer.isTransformed) return;
 
-        function handlePlayerInput(e) {
+            const body = myPlayer.body;
+            const onGround = Math.abs(body.velocity.y) < 0.1;
+
+            const moveSpeed = 5;
+            let targetVelocityX = 0;
+
+            if (keys['KeyA'] || keys['ArrowLeft']) {
+                targetVelocityX = -moveSpeed;
+                myPlayer.direction = 'left';
+            } else if (keys['KeyD'] || keys['ArrowRight']) {
+                targetVelocityX = moveSpeed;
+                myPlayer.direction = 'right';
+            }
+            
+            if (onGround) {
+                Body.setVelocity(body, { x: targetVelocityX, y: body.velocity.y });
+            } else {
+                // Allow some air control but less than ground
+                const airForce = 0.005;
+                 if (keys['KeyA'] || keys['ArrowLeft']) {
+                    Body.applyForce(body, body.position, { x: -airForce, y: 0 });
+                } else if (keys['KeyD'] || keys['ArrowRight']) {
+                    Body.applyForce(body, body.position, { x: airForce, y: 0 });
+                }
+            }
+        }
+
+        // Handles single-press actions like jumping
+        function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
             const body = myPlayer.body;
 
-            const moveForce = isTransformed ? 0.005 : 0.012;
-            if (keys['KeyA'] || keys['ArrowLeft']) {
-                Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
-                myPlayer.direction = 'left';
-            }
-            if (keys['KeyD'] || keys['ArrowRight']) {
-                Body.applyForce(body, body.position, { x: moveForce, y: 0 });
-                myPlayer.direction = 'right';
-            }
-
-            if (e.code === 'Space' && e.type === 'keydown') {
-                if (!isTransformed && Math.abs(body.velocity.y) < 0.5) {
+            if (e.code === 'Space') {
+                const onGround = Math.abs(body.velocity.y) < 0.1;
+                if (!isTransformed && onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
                 }
             }
             
-            if (e.code === 'KeyB' && e.type === 'keydown') {
+            if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
         }
