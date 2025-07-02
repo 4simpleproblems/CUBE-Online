@@ -20,7 +20,6 @@
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
-            /* Default color removed, will be set dynamically */
             --stamina-bar-color: #28a745;
         }
 
@@ -382,45 +381,38 @@
             border-color: #1e7e34;
         }
 
-        .off-screen-indicator {
+        /* NEW: Styles for the redesigned off-screen indicator */
+        .indicator-new {
             position: absolute;
             z-index: 26;
-            width: 40px;
-            height: 40px;
             pointer-events: none;
-            transition: opacity 0.2s, top 0.1s linear, left 0.1s linear;
             display: flex;
-            justify-content: center;
             align-items: center;
-        }
-        .off-screen-arrow {
-            width: 0; 
-            height: 0; 
-            border-left: 8px solid transparent;
-            border-right: 8px solid transparent;
-            /* Color is now set dynamically */
-            border-top-width: 12px;
-            border-top-style: solid;
+            height: 28px;
+            transition: transform 0.1s linear, opacity 0.2s;
             transform-origin: center center;
-            transition: transform 0.1s linear;
         }
-        .off-screen-name {
-            position: absolute;
-            top: 25px;
-            font-size: 12px;
-            font-weight: bold;
+
+        .indicator-arrow {
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 6px 10px 6px 0; /* Creates a triangle pointing right */
+            border-color: transparent var(--player-color) transparent transparent;
+        }
+
+        .indicator-name {
+            background-color: var(--player-color);
             color: white;
-            /* Color is now set dynamically */
-            padding: 3px 8px;
-            border-radius: 10px;
-            /* FIX: Allow text to wrap and prevent clipping */
-            white-space: normal; 
-            word-wrap: break-word;
-            max-width: 100px;
-            text-align: center;
-            line-height: 1.1;
-            transform: translateX(-50%);
-            left: 50%;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 0 14px 14px 0; /* Pill shape */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 120px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
         
         /* Mobile Horizontal Orientation */
@@ -636,6 +628,14 @@
             initializePeer(myUsername, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
+        // NEW: Generates a random, dark, vibrant color for player indicators
+        function generateDarkColor() {
+            const hue = Math.floor(Math.random() * 361); // 0-360 for any color
+            const saturation = 70 + Math.floor(Math.random() * 31); // 70-100% for vibrancy
+            const lightness = 35 + Math.floor(Math.random() * 16); // 35-50% for good contrast with white text
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        }
+
         function initializePeer(username, requestedId) {
             if (peer) peer.destroy();
             const peerConfig = {
@@ -697,8 +697,7 @@
                 return;
             }
             
-            // Assign a color to the new player
-            const playerColor = `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`;
+            const playerColor = generateDarkColor();
             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
             createPlayer(conn.peer, newUsername, startPos, true, playerColor);
             setupConnection(conn);
@@ -715,7 +714,7 @@
                         position: p.body.position,
                         isTransformed: p.isTransformed,
                         direction: p.direction,
-                        color: p.color // Send color info
+                        color: p.color
                     }));
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())];
 
@@ -809,7 +808,6 @@
                         if (pInfo.peerId !== myPeerId) {
                             createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
                         } else {
-                            // Set my own color from the host
                             const me = players.get(myPeerId);
                             if (me) me.color = pInfo.color;
                         }
@@ -857,7 +855,7 @@
                         velocity: myPlayer.body.velocity,
                         isTransformed: myPlayer.isTransformed,
                         direction: myPlayer.direction,
-                        color: myPlayer.color // Also send color in regular updates for robustness
+                        color: myPlayer.color
                     });
                 }
             });
@@ -913,28 +911,30 @@
                     <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
                 </div>
                 <div class="player-name">${username}</div>`;
-            if (!isInitialSpawn) {
-                playerEl.style.opacity = '0';
-            }
             worldContainer.appendChild(playerEl);
+            
+            // NEW: Create the redesigned indicator
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
-            indicatorEl.className = 'off-screen-indicator';
+            indicatorEl.className = 'indicator-new';
             indicatorEl.style.opacity = '0';
             indicatorEl.innerHTML = `
-                <div class="off-screen-arrow"></div>
-                <div class="off-screen-name">${username}</div>`;
+                <div class="indicator-arrow"></div>
+                <div class="indicator-name">${username}</div>`;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
+
             const player = {
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
                 isTransformed: false, isIdle: true, isWalking: false, onGround: false,
                 direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
                 currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
                 lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
-                color: color || `#${Math.floor(Math.random()*16777215).toString(16).padStart(6, '0')}`
+                color: color || generateDarkColor()
             };
             players.set(peerId, player);
+            
             if (!isInitialSpawn) {
+                playerEl.style.opacity = '0';
                 setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
             }
         }
@@ -958,7 +958,7 @@
             if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
-                player.color = data.color || player.color; // Update color if received
+                player.color = data.color || player.color;
                 if (player.direction !== data.direction) {
                     player.direction = data.direction || 'right';
                 }
@@ -1039,13 +1039,15 @@
             worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${camera.scale})`;
         }
 
+        // REWRITTEN: Complete overhaul of the indicator logic
         function updateOffScreenIndicators() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
+
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-            const indicatorPositions = [];
             
+            // Hide all indicators initially
             players.forEach(p => {
                 if (p.indicator) p.indicator.style.opacity = '0';
             });
@@ -1053,32 +1055,29 @@
             for (const otherPlayer of players.values()) {
                 if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) continue;
                 
-                const myPos = myPlayer.body.position;
-                const targetPos = otherPlayer.body.position;
-                const screenX = (targetPos.x - camera.x) * camera.scale + viewportWidth / 2;
-                const screenY = (targetPos.y - camera.y) * camera.scale + viewportHeight / 2;
+                const screenX = (otherPlayer.body.position.x - camera.x) * camera.scale + viewportWidth / 2;
+                const screenY = (otherPlayer.body.position.y - camera.y) * camera.scale + viewportHeight / 2;
 
-                const isOffScreen = screenX < 50 || screenX > viewportWidth - 50 || screenY < 50 || screenY > viewportHeight - 50;
+                const indicator = otherPlayer.indicator;
+                const isOffScreen = screenX < 0 || screenX > viewportWidth || screenY < 0 || screenY > viewportHeight;
 
                 if (isOffScreen) {
-                    const padding = 30; // Use fixed pixel padding
+                    indicator.style.opacity = '1';
+                    
+                    // Set the player's unique color
+                    indicator.style.setProperty('--player-color', otherPlayer.color || '#333');
+
+                    // Clamp the position with a nice padding
+                    const padding = 20;
                     const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
                     const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
-                    const angle = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
-                    
-                    const indicator = otherPlayer.indicator;
-                    const arrow = indicator.querySelector('.off-screen-arrow');
-                    const nameEl = indicator.querySelector('.off-screen-name');
-                    const playerColor = otherPlayer.color || '#007bff';
 
-                    arrow.style.borderTopColor = playerColor;
-                    nameEl.style.backgroundColor = playerColor;
+                    // Angle from the indicator's clamped position on screen to the player's actual position
+                    const angleRad = Math.atan2(screenY - clampedY, screenX - clampedX);
+                    const angleDeg = angleRad * 180 / Math.PI;
 
-                    indicator.style.opacity = '1';
-                    indicator.style.left = `${clampedX}px`;
-                    indicator.style.top = `${clampedY}px`;
-                    indicator.style.transform = `translate(-50%, -50%)`;
-                    arrow.style.transform = `rotate(${angle + Math.PI / 2}rad)`;
+                    // Position and rotate the entire indicator group
+                    indicator.style.transform = `translate(${clampedX}px, ${clampedY}px) translate(-50%, -50%) rotate(${angleDeg}deg)`;
                 }
             }
         }
@@ -1241,10 +1240,8 @@
                 if (touchDuration < 250 && touchDistance < 20) {
                     const myPlayer = players.get(myPeerId);
                     if (myPlayer) {
-                        // Allow toggling sprint on if stamina > 0
                         if (!myPlayer.sprintModeActive && myPlayer.currentStamina > 0) {
                             myPlayer.sprintModeActive = true;
-                        // Always allow toggling sprint off
                         } else if (myPlayer.sprintModeActive) {
                             myPlayer.sprintModeActive = false;
                         }
@@ -1389,7 +1386,7 @@
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
                 setTimeout(() => {
-                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false, myPlayer.color); // Preserve color on respawn
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false, myPlayer.color);
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
