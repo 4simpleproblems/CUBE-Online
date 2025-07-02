@@ -686,11 +686,10 @@
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
                 staminaDrainRate: 25, staminaRegenRate: 15,
-                // New properties for variable jump
                 isJumping: false,
                 jumpTime: 0,
-                maxJumpTime: 250, // Max duration of sustained jump in ms
-                jumpStaminaDrainRate: 50 // Stamina per second for sustained jump
+                maxJumpTime: 250, 
+                jumpStaminaDrainRate: 50 
             });
         }
 
@@ -867,7 +866,6 @@
         }
         function handleKeyUp(e) {
             keys[e.code] = false;
-            // NEW: Stop jump ascent when key is released
             const myPlayer = players.get(myPeerId);
             if (myPlayer && (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp')) {
                 myPlayer.isJumping = false;
@@ -883,12 +881,17 @@
             // --- Sustained Jump Logic ---
             const isHoldingJump = keys['Space'] || keys['KeyW'] || keys['ArrowUp'];
             if (myPlayer.isJumping && isHoldingJump && myPlayer.currentStamina > 0 && myPlayer.jumpTime < myPlayer.maxJumpTime) {
-                // Apply a continuous force to go higher, counteracting gravity
-                Body.applyForce(body, body.position, { x: 0, y: -0.0045 }); // This value may need tuning
+                // UPDATED: The upward force now decays as the jump time increases.
+                const jumpProgress = myPlayer.jumpTime / myPlayer.maxJumpTime;
+                const forceDecayMultiplier = 1 - jumpProgress;
+                const baseJumpForce = -0.0055; // Tuned for a better feel
+                const appliedForceY = baseJumpForce * forceDecayMultiplier;
+
+                Body.applyForce(body, body.position, { x: 0, y: appliedForceY });
+                
                 myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.jumpStaminaDrainRate * (deltaTime / 1000));
                 myPlayer.jumpTime += deltaTime;
             } else {
-                // Stop the jump ascent if key is released, time runs out, or no stamina
                 myPlayer.isJumping = false;
             }
 
@@ -936,10 +939,9 @@
             // --- Jump Initiation ---
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     // Initial small hop - a light tap on the key gives this minimum jump. No stamina cost.
                      Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: -7 });
                      myPlayer.onGround = false;
-                     myPlayer.isJumping = true; // Allows the sustained jump to check this flag
+                     myPlayer.isJumping = true;
                      myPlayer.jumpTime = 0;
                 }
             }
