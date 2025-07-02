@@ -20,7 +20,6 @@
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
-            --off-screen-indicator-color: #007bff;
             --stamina-bar-color: #28a745;
         }
 
@@ -120,6 +119,10 @@
 
         @keyframes fadeOut {
             to { opacity: 0; transform: scale(0.2); }
+        }
+        
+        @keyframes pulse {
+            50% { transform: scale(1.15); }
         }
 
         .player-sprite-wrapper {
@@ -382,38 +385,43 @@
             border-color: #1e7e34;
         }
 
-        .off-screen-indicator {
+        /* NEW: Styles for the completely remade indicator */
+        .compass-indicator {
             position: absolute;
             z-index: 26;
-            width: 40px;
-            height: 40px;
             pointer-events: none;
-            transition: opacity 0.2s, top 0.1s linear, left 0.1s linear;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
+            transition: top 0.1s linear, left 0.1s linear, opacity 0.3s ease;
+            transform: translate(-50%, -50%); /* Center the element on its coordinates */
         }
-        .off-screen-arrow {
-            width: 0; 
-            height: 0; 
-            border-left: 8px solid transparent;
-            border-right: 8px solid transparent;
-            border-top: 12px solid var(--off-screen-indicator-color);
-            transform-origin: center center;
-            transition: transform 0.1s linear;
+
+        .indicator-dot {
+            width: 20px;
+            height: 20px;
+            background-color: var(--player-color);
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 12px var(--player-color);
+            animation: pulse 2s infinite ease-in-out;
         }
-        .off-screen-name {
-            position: absolute;
-            top: 25px;
-            font-size: 12px;
-            font-weight: bold;
+
+        .indicator-label {
+            background-color: rgba(0, 0, 0, 0.65);
+            -webkit-backdrop-filter: blur(4px);
+            backdrop-filter: blur(4px);
             color: white;
-            background-color: var(--off-screen-indicator-color);
-            padding: 2px 6px;
-            border-radius: 10px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
             white-space: nowrap;
-            transform: translateX(-50%);
-            left: 50%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 120px;
+            transition: opacity 0.3s ease;
         }
         
         /* Mobile Horizontal Orientation */
@@ -629,27 +637,23 @@
             initializePeer(myUsername, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
+        function generateDarkColor() {
+            const hue = Math.floor(Math.random() * 361);
+            const saturation = 70 + Math.floor(Math.random() * 31);
+            const lightness = 35 + Math.floor(Math.random() * 16);
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        }
+
         function initializePeer(username, requestedId) {
             if (peer) peer.destroy();
-
-            // NEW: Configuration with public STUN servers for better reliability
             const peerConfig = {
                 config: {
                     'iceServers': [
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:stun1.l.google.com:19302' },
                         { urls: 'stun:stun2.l.google.com:19302' },
-                        // The Open Relay Project provides a free TURN server for development
-                        {
-                            urls: "turn:static.openrelay.metered.ca:80",
-                            username: "openrelayproject",
-                            credential: "openrelayproject",
-                        },
-                        {
-                            urls: "turn:static.openrelay.metered.ca:443",
-                            username: "openrelayproject",
-                            credential: "openrelayproject",
-                        },
+                        { urls: "turn:static.openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+                        { urls: "turn:static.openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
                     ]
                 }
             };
@@ -700,9 +704,10 @@
                 });
                 return;
             }
-
+            
+            const playerColor = generateDarkColor();
             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
-            createPlayer(conn.peer, newUsername, startPos, true);
+            createPlayer(conn.peer, newUsername, startPos, true, playerColor);
             setupConnection(conn);
         }
 
@@ -716,7 +721,8 @@
                         username: p.username,
                         position: p.body.position,
                         isTransformed: p.isTransformed,
-                        direction: p.direction
+                        direction: p.direction,
+                        color: p.color
                     }));
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())];
 
@@ -808,7 +814,10 @@
                     startGame(myUsername);
                     data.players.forEach(pInfo => {
                         if (pInfo.peerId !== myPeerId) {
-                            createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true);
+                            createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
+                        } else {
+                            const me = players.get(myPeerId);
+                            if (me) me.color = pInfo.color;
                         }
                     });
                     data.peerIds.forEach(connectToPeer);
@@ -816,7 +825,7 @@
                 case 'new-player-joined':
                     const pInfo = data.playerInfo;
                     if (pInfo && pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
-                        createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true);
+                        createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
                     }
                     break;
             }
@@ -853,7 +862,8 @@
                         position: myPlayer.body.position,
                         velocity: myPlayer.body.velocity,
                         isTransformed: myPlayer.isTransformed,
-                        direction: myPlayer.direction
+                        direction: myPlayer.direction,
+                        color: myPlayer.color
                     });
                 }
             });
@@ -890,7 +900,7 @@
             gameObjects.set(id, { body, element: el });
         }
 
-        function createPlayer(peerId, username, position, isInitialSpawn = false) {
+        function createPlayer(peerId, username, position, isInitialSpawn = false, color = null) {
             if (players.has(peerId)) return;
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity,
@@ -909,29 +919,29 @@
                     <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
                 </div>
                 <div class="player-name">${username}</div>`;
-            if (!isInitialSpawn) {
-                playerEl.style.opacity = '0';
-            }
             worldContainer.appendChild(playerEl);
+            
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
-            indicatorEl.className = 'off-screen-indicator';
+            indicatorEl.className = 'compass-indicator';
             indicatorEl.style.opacity = '0';
             indicatorEl.innerHTML = `
-                <div class="off-screen-arrow"></div>
-                <div class="off-screen-name">${username}</div>`;
+                <div class="indicator-dot"></div>
+                <div class="indicator-label">${username}</div>`;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
+
             const player = {
-                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false,
-                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
-                isSprinting: false, maxStamina: 100, currentStamina: 100,
-                staminaDrainRate: 25, staminaRegenRate: 15,
-                lastMoveTimestamp: Date.now(),
-                sideLock: false,
-                sprintModeActive: false
+                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
+                isTransformed: false, isIdle: true, isWalking: false, onGround: false,
+                direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
+                currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
+                lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
+                color: color || generateDarkColor()
             };
             players.set(peerId, player);
+            
             if (!isInitialSpawn) {
+                playerEl.style.opacity = '0';
                 setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
             }
         }
@@ -949,12 +959,13 @@
         function updatePlayer(data) {
             let player = players.get(data.peerId);
             if (!player && data.username) {
-                createPlayer(data.peerId, data.username, data.position, true);
+                createPlayer(data.peerId, data.username, data.position, true, data.color);
                 player = players.get(data.peerId);
             }
             if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
+                player.color = data.color || player.color;
                 if (player.direction !== data.direction) {
                     player.direction = data.direction || 'right';
                 }
@@ -1038,49 +1049,45 @@
         function updateOffScreenIndicators() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
+
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-            const indicatorPositions = [];
-            for (const p of players.values()) {
-                if (p.indicator) p.indicator.style.opacity = '0';
-            }
-            for (const otherPlayer of players.values()) {
-                if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) continue;
-                const myPos = myPlayer.body.position;
-                const targetPos = otherPlayer.body.position;
-                const screenX = (targetPos.x - camera.x) * camera.scale + viewportWidth / 2;
-                const screenY = (targetPos.y - camera.y) * camera.scale + viewportHeight / 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
+
+            // The radius of the "compass ring" is 45% of the smallest screen dimension
+            const radius = Math.min(viewportWidth, viewportHeight) * 0.45;
+
+            players.forEach(p => {
+                if (p.peerId === myPeerId) return;
+
+                const indicator = p.indicator;
+                if (!indicator) return;
+
+                const screenX = (p.body.position.x - camera.x) * camera.scale + centerX;
+                const screenY = (p.body.position.y - camera.y) * camera.scale + centerY;
+
                 const isOffScreen = screenX < 0 || screenX > viewportWidth || screenY < 0 || screenY > viewportHeight;
+
                 if (isOffScreen) {
-                    const distance = Vector.magnitude(Vector.sub(targetPos, myPos));
-                    const padding = 40 + Math.min(100, distance / 100);
-                    const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
-                    const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
-                    const angle = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
-                    indicatorPositions.push({ player: otherPlayer, x: clampedX, y: clampedY, angle: angle });
+                    indicator.style.opacity = '1';
+                    indicator.style.setProperty('--player-color', p.color);
+
+                    // Angle from my player to the other player
+                    const angle = Math.atan2(p.body.position.y - myPlayer.body.position.y, p.body.position.x - myPlayer.body.position.x);
+
+                    // Position the indicator on the compass ring
+                    const indicatorX = centerX + radius * Math.cos(angle);
+                    const indicatorY = centerY + radius * Math.sin(angle);
+
+                    indicator.style.left = `${indicatorX}px`;
+                    indicator.style.top = `${indicatorY}px`;
+                } else {
+                    indicator.style.opacity = '0';
                 }
-            }
-            const STACK_OFFSET = 45;
-            const STACK_RADIUS = 30;
-            for (let i = 0; i < indicatorPositions.length; i++) {
-                const current = indicatorPositions[i];
-                let stackCount = 0;
-                for (let j = 0; j < i; j++) {
-                    const other = indicatorPositions[j];
-                    if (Math.hypot(current.x - other.x, current.y - other.y) < STACK_RADIUS) {
-                        stackCount++;
-                    }
-                }
-                const finalY = current.y + (stackCount * STACK_OFFSET);
-                const indicator = current.player.indicator;
-                const arrow = indicator.querySelector('.off-screen-arrow');
-                indicator.style.opacity = '1';
-                indicator.style.left = `${current.x}px`;
-                indicator.style.top = `${finalY}px`;
-                indicator.style.transform = `translate(-50%, -50%)`;
-                arrow.style.transform = `rotate(${current.angle + Math.PI / 2}rad)`;
-            }
+            });
         }
+
 
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
@@ -1173,7 +1180,8 @@
         function performJump() {
             const myPlayer = players.get(myPeerId);
             if (myPlayer && !myPlayer.isDead && !isTransformed && myPlayer.onGround) {
-                Body.applyForce(myPlayer.body, myPlayer.body.position, { x: 0, y: -0.1 });
+                const jumpVelocity = -16;
+                Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: jumpVelocity });
                 myPlayer.onGround = false;
             }
         }
@@ -1195,10 +1203,7 @@
             let joystickActive = false;
             let touchStartTime = 0;
             let touchStartPos = { x: 0, y: 0 };
-            const joystickRadius = joystickZone.offsetWidth / 2;
-            const nubRadius = joystickNub.offsetWidth / 2;
-            const maxDelta = joystickRadius - nubRadius;
-
+            
             joystickZone.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 joystickActive = true;
@@ -1212,6 +1217,9 @@
                 if (!joystickActive) return;
                 const touch = e.changedTouches[0];
                 const zoneRect = joystickZone.getBoundingClientRect();
+                const joystickRadius = joystickZone.offsetWidth / 2;
+                const nubRadius = joystickNub.offsetWidth / 2;
+                const maxDelta = joystickRadius - nubRadius;
                 const deltaX = touch.clientX - (zoneRect.left + joystickRadius);
                 const deltaY = touch.clientY - (zoneRect.top + joystickRadius);
                 const angle = Math.atan2(deltaY, deltaX);
@@ -1221,14 +1229,11 @@
                 joystickNub.style.transform = `translate(-50%, -50%) translate(${newNubX}px, ${newNubY}px)`;
                 const threshold = 0.2;
                 if (newNubX / maxDelta < -threshold) {
-                    keys['KeyA'] = true;
-                    keys['KeyD'] = false;
+                    keys['KeyA'] = true; keys['KeyD'] = false;
                 } else if (newNubX / maxDelta > threshold) {
-                    keys['KeyA'] = false;
-                    keys['KeyD'] = true;
+                    keys['KeyA'] = false; keys['KeyD'] = true;
                 } else {
-                    keys['KeyA'] = false;
-                    keys['KeyD'] = false;
+                    keys['KeyA'] = false; keys['KeyD'] = false;
                 }
             }, { passive: false });
 
@@ -1236,11 +1241,14 @@
                 const touch = e.changedTouches[0];
                 const touchDuration = Date.now() - touchStartTime;
                 const touchDistance = Math.hypot(touch.clientX - touchStartPos.x, touch.clientY - touchStartPos.y);
-                if (touchDuration < 200 && touchDistance < 10) {
+
+                if (touchDuration < 250 && touchDistance < 20) {
                     const myPlayer = players.get(myPeerId);
                     if (myPlayer) {
-                        if (myPlayer.sprintModeActive || myPlayer.currentStamina > 0) {
-                            myPlayer.sprintModeActive = !myPlayer.sprintModeActive;
+                        if (!myPlayer.sprintModeActive && myPlayer.currentStamina > 0) {
+                            myPlayer.sprintModeActive = true;
+                        } else if (myPlayer.sprintModeActive) {
+                            myPlayer.sprintModeActive = false;
                         }
                         joystickNub.classList.toggle('active', myPlayer.sprintModeActive);
                     }
@@ -1383,7 +1391,7 @@
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
                 setTimeout(() => {
-                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false);
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false, myPlayer.color);
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
@@ -1440,7 +1448,6 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            // Don't call leaveLobby immediately; let the user see the message first.
             showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`, leaveLobby);
         }
 
