@@ -20,6 +20,8 @@
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
+            --success-color: #28a745;
+            --success-hover-color: #218838;
             --stamina-bar-color: #28a745;
         }
 
@@ -124,6 +126,11 @@
         @keyframes pulse {
             50% { transform: scale(1.15); }
         }
+        
+        @keyframes modal-fade-in {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
 
         .player-sprite-wrapper {
             width: 100%;
@@ -175,7 +182,6 @@
 
         .hidden { display: none !important; }
 
-        /* NEW: Styles for the redesigned main menu */
         .ui-view {
             display: flex;
             align-items: center;
@@ -280,20 +286,43 @@
             color: var(--accent-hover-color);
         }
 
-        /* Responsive adjustments for landscape/PC */
         @media (min-width: 500px) {
             .join-actions {
                 flex-direction: row;
                 gap: 10px;
             }
             #lobby-code-input-new {
-                flex-grow: 3; /* Make code input wider */
+                flex-grow: 3;
             }
             #join-lobby-btn-new {
                 flex-grow: 2;
             }
         }
         
+        .btn {
+            padding: 12px 24px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            border: none;
+            background-color: var(--accent-color);
+            color: white;
+            cursor: pointer;
+            border-radius: 6px;
+            text-shadow: none;
+            margin: 5px;
+            font-size: 1rem;
+            transition: background-color 0.2s, transform 0.1s;
+            width: auto;
+        }
+        .btn:hover { background-color: var(--accent-hover-color); }
+        .btn:active { transform: scale(0.98); }
+        
+        .btn-danger { background-color: var(--danger-color); }
+        .btn-danger:hover { background-color: var(--danger-hover-color); }
+
+        .btn-success { background-color: var(--success-color); }
+        .btn-success:hover { background-color: var(--success-hover-color); }
+
         #game-ui {
             position: absolute;
             top: 15px;
@@ -305,7 +334,6 @@
         }
 
         #game-ui-buttons { display: flex; gap: 10px; }
-        #game-ui-buttons .btn { width: auto; }
 
         #stamina-bar-container {
             width: 200px;
@@ -360,15 +388,50 @@
 
         #message-box {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.6); display: flex;
-            align-items: center; justify-content: center; z-index: 40;
+            background-color: rgba(0,0,0,0.6);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 40;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease-in-out;
         }
+        #message-box.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
         #message-box-content {
-            background-color: var(--surface-color); color: var(--primary-text-color); padding: 30px;
-            border: 2px solid var(--border-color); border-radius: 8px; text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-width: 90%;
+            background-color: var(--surface-color);
+            color: var(--primary-text-color);
+            padding: 20px 25px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            max-width: 90%;
+            width: 400px;
+            transition: transform 0.2s ease-in-out;
         }
-        #message-box-ok { margin-top: 20px; width: auto; }
+        #message-box.visible #message-box-content {
+            animation: modal-fade-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #message-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 10px 0;
+        }
+
+        #message-text {
+            font-size: 1rem;
+            color: var(--secondary-color);
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        #message-box-ok {
+            margin-top: 25px;
+            padding: 10px 30px;
+        }
 
         #mobile-controls {
             position: fixed;
@@ -549,8 +612,9 @@
         </div>
     </div>
 
-    <div id="message-box" class="hidden">
+    <div id="message-box">
         <div id="message-box-content">
+            <h2 id="message-title"></h2>
             <p id="message-text"></p>
             <button id="message-box-ok" class="btn">OK</button>
         </div>
@@ -561,7 +625,7 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 100000; // FIX: Increased world width
+        const worldWidth = 100000;
         const worldHeight = 10000;
         let isTransformed = false;
         let animationInterval;
@@ -578,7 +642,7 @@
         const worldContainer = document.getElementById('world-container');
         const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
         const fadeOverlay = document.getElementById('fade-overlay');
-        const menuView = document.getElementById('menu-view'); // NEW: Reference to the new menu
+        const menuView = document.getElementById('menu-view');
         const loadingView = document.getElementById('loading-view');
         const gameUi = document.getElementById('game-ui');
         const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
@@ -587,13 +651,11 @@
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
 
-        // NEW: References for new menu elements
         const newUsernameInput = document.getElementById('username-new');
         const newLobbyCodeInput = document.getElementById('lobby-code-input-new');
         const newJoinLobbyBtn = document.getElementById('join-lobby-btn-new');
         const newCreateLobbyBtn = document.getElementById('create-lobby-btn-new');
 
-        // NEW: Event listeners for redesigned menu
         newJoinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
         newCreateLobbyBtn.addEventListener('click', () => handleLobbyAction(true));
 
@@ -601,11 +663,12 @@
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         window.addEventListener('load', checkForSession);
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        document.getElementById('message-box').style.display = 'none';
 
         function handleVisibilityChange() {
             if (document.visibilityState === 'visible' && peer && peer.disconnected) {
                 if (sessionStorage.getItem(SESSION_KEY)) {
-                     showMessage("You were disconnected. Attempting to reconnect...", () => {
+                     showMessage("Reconnecting...", "You were disconnected due to inactivity. We will try to reconnect you now.", () => {
                         window.location.reload();
                     });
                 }
@@ -619,8 +682,8 @@
                 isHost = sessionData.isHost;
                 lobbyCode = sessionData.lobbyCode;
                 myUsername = sessionData.username;
-                newUsernameInput.value = myUsername; // Update new input
-                newLobbyCodeInput.value = sessionData.lobbyCode; // Update new input
+                newUsernameInput.value = myUsername;
+                newLobbyCodeInput.value = sessionData.lobbyCode;
                 lockLoginInputs();
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
@@ -658,12 +721,11 @@
             history.pushState({}, '', window.location.pathname);
         }
 
-        // UPDATED: Logic now works with the single, redesigned menu
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
             myUsername = newUsernameInput.value.trim();
             if (!myUsername) {
-                showMessage('Please enter a username.');
+                showMessage('Input Error', 'Please enter a username.', null, { style: 'danger' });
                 return;
             }
 
@@ -672,7 +734,7 @@
             } else {
                 lobbyCode = newLobbyCodeInput.value.trim().toUpperCase();
                 if (!lobbyCode || lobbyCode.length !== 8) {
-                    showMessage('Please enter a valid 8-digit lobby code.');
+                    showMessage('Input Error', 'Please enter a valid 8-digit lobby code.', null, { style: 'danger' });
                     return;
                 }
             }
@@ -817,7 +879,7 @@
             sessionStorage.removeItem(SESSION_KEY);
             clearUrlParams();
             unlockLoginInputs();
-            menuView.classList.remove('hidden'); // Show new menu
+            menuView.classList.remove('hidden');
         }
 
         function handleJoinRejection() {
@@ -833,7 +895,7 @@
             unlockLoginInputs();
             loadingView.classList.add('hidden');
             
-            menuView.classList.remove('hidden'); // Show new menu
+            menuView.classList.remove('hidden');
 
             newLobbyCodeInput.value = codeToKeep;
             newUsernameInput.value = usernameToEdit;
@@ -856,7 +918,7 @@
                     createRespawnParticles(data.position);
                     break;
                 case 'name-taken':
-                    showMessage('This username is already taken. Please choose another.', handleJoinRejection);
+                    showMessage('Name Taken', 'This username is already in use. Please choose another.', handleJoinRejection, { style: 'danger' });
                     break;
                 case 'welcome':
                     menuView.classList.add('hidden');
@@ -1443,24 +1505,38 @@
             }, 1000);
         }
 
-        function showMessage(message, onOkCallback) {
-            document.getElementById('message-text').textContent = message;
+        // UPDATED: Now accepts a title and an options object for styling
+        function showMessage(title, message, onOkCallback, options = {}) {
             const messageBox = document.getElementById('message-box');
+            document.getElementById('message-title').textContent = title || 'Alert';
+            document.getElementById('message-text').textContent = message;
+            
             const okButton = document.getElementById('message-box-ok');
+            okButton.textContent = options.buttonText || 'OK';
+
+            // Reset classes and apply new style
+            okButton.className = 'btn';
+            if (options.style === 'danger') {
+                okButton.classList.add('btn-danger');
+            } else if (options.style === 'success') {
+                okButton.classList.add('btn-success');
+            }
             
             const newOkButton = okButton.cloneNode(true);
             okButton.parentNode.replaceChild(newOkButton, okButton);
 
             const closeAndCallback = () => {
-                messageBox.classList.add('hidden');
+                messageBox.classList.remove('visible');
+                messageBox.style.display = 'none';
                 if (onOkCallback) {
                     onOkCallback();
                 }
             };
             
             newOkButton.addEventListener('click', closeAndCallback, { once: true });
-
-            messageBox.classList.remove('hidden');
+            
+            messageBox.style.display = 'flex';
+            setTimeout(() => messageBox.classList.add('visible'), 10);
         }
 
         function showLoadingScreen(isCreating) {
@@ -1479,7 +1555,7 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`, leaveLobby);
+            showMessage('Connection Error', `Error: ${err.type}. Could not find lobby or the connection failed.`, leaveLobby, { style: 'danger' });
         }
 
         function generateLobbyCode() {
