@@ -3,36 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Cube World: Evolved</title>
+    <title>human simulator</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
 
         :root {
-            --background-color: #1a1a1a;
-            --primary-text-color: #f5f5f5;
-            --border-color: #444;
-            --surface-color: #2d2d2d;
-            --accent-color: #0095ff;
-            --accent-hover-color: #007acc;
+            --background-color: #f0f0f0; /* Light grey background */
+            --primary-text-color: #1a1a1a; /* Dark text */
+            --border-color: #cccccc; /* Lighter border */
+            --surface-color: #ffffff; /* White surfaces */
+            --accent-color: #007bff; /* A nice blue */
+            --accent-hover-color: #0056b3;
             --secondary-color: #6c757d;
             --secondary-hover-color: #5a6268;
-            --danger-color: #e53935;
-            --danger-hover-color: #c62828;
-            --lava-color: #ff4500;
+            --danger-color: #dc3545;
+            --danger-hover-color: #c82333;
+            --off-screen-indicator-color: #007bff;
         }
 
         body {
             background-color: var(--background-color);
             color: var(--primary-text-color);
-            font-family: 'Inter', sans-serif;
+            font-family: 'Poppins', sans-serif;
             margin: 0;
             overflow: hidden;
         }
 
         #game-viewport {
-            background-color: var(--surface-color);
+            background-color: var(--background-color); /* Grey background for the game world */
             width: 100vw;
             height: 100vh;
             position: relative;
@@ -47,19 +47,16 @@
 
         .game-object {
             position: absolute;
-            background-color: #555; /* Platform color */
+            background-color: var(--surface-color); /* White floor */
+            border: 1px solid var(--border-color);
             transform-origin: center center;
         }
         
         .player-object {
             background-color: transparent; /* Player container is invisible */
+            border: none; /* No border for the player container itself */
             transition: border-radius 0.2s ease, opacity 0.2s ease;
             z-index: 10;
-        }
-
-        .lava-object {
-            background-color: var(--lava-color);
-            box-shadow: 0 0 20px var(--lava-color);
         }
 
         .death-particle, .wind-particle {
@@ -69,12 +66,12 @@
             z-index: 15;
         }
         .death-particle {
-            background-color: #000;
+            background-color: #333;
             width: 5px;
             height: 5px;
         }
         .wind-particle {
-            background-color: rgba(255, 255, 255, 0.7);
+            background-color: rgba(0, 0, 0, 0.5);
             width: 8px;
             height: 8px;
             animation: fadeOut 0.5s forwards;
@@ -89,8 +86,8 @@
         .player-sprite {
             width: 100%;
             height: 100%;
-            object-fit: contain; /* Ensures sprite fits without stretching */
-            image-rendering: pixelated; /* For a sharp, retro look */
+            object-fit: contain;
+            image-rendering: pixelated;
         }
         
         .player-name {
@@ -102,7 +99,7 @@
             color: var(--primary-text-color);
             white-space: nowrap;
             font-weight: bold;
-            background-color: rgba(0, 0, 0, 0.5);
+            background-color: rgba(255, 255, 255, 0.7);
             padding: 2px 5px;
             border-radius: 4px;
         }
@@ -113,7 +110,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: #000;
+            background-color: #ffffff;
             opacity: 0;
             pointer-events: none;
             z-index: 20;
@@ -128,7 +125,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(26, 26, 26, 0.95);
+            background-color: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(5px);
             position: absolute;
             top: 0;
@@ -145,11 +142,12 @@
         .ui-view h1 {
             font-size: 2.5rem;
             margin-bottom: 25px;
+            color: var(--primary-text-color);
         }
 
         .input-field {
             padding: 12px;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Poppins', sans-serif;
             border: 2px solid var(--border-color);
             background-color: var(--surface-color);
             color: var(--primary-text-color);
@@ -163,7 +161,7 @@
 
         .btn {
             padding: 12px 24px;
-            font-family: 'Inter', sans-serif;
+            font-family: 'Poppins', sans-serif;
             font-weight: bold;
             border: none;
             background-color: var(--accent-color);
@@ -179,7 +177,7 @@
         }
         
         .btn:hover { background-color: var(--accent-hover-color); }
-        .btn-secondary { background-color: var(--secondary-color); }
+        .btn-secondary { background-color: var(--secondary-color); color: white; }
         .btn-secondary:hover { background-color: var(--secondary-hover-color); }
         .btn-danger { background-color: var(--danger-color); }
         .btn-danger:hover { background-color: var(--danger-hover-color); }
@@ -211,7 +209,7 @@
             display: inline-block;
             padding: 8px 12px;
             background: var(--primary-text-color);
-            color: var(--background-color);
+            color: var(--surface-color);
             border-radius: 6px;
         }
 
@@ -230,7 +228,6 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Custom Message Box */
         #message-box {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background-color: rgba(0,0,0,0.6); display: flex;
@@ -243,7 +240,6 @@
         }
         #message-box-ok { margin-top: 20px; width: auto; }
 
-        /* Mobile Controls */
         #mobile-controls {
             position: fixed;
             bottom: 0;
@@ -262,14 +258,14 @@
             left: 20px;
             width: 150px;
             height: 150px;
-            background: rgba(255,255,255,0.1);
+            background: rgba(0,0,0,0.1);
             border-radius: 50%;
         }
         #joystick-nub {
             position: absolute;
             width: 60px;
             height: 60px;
-            background: rgba(255,255,255,0.3);
+            background: rgba(0,0,0,0.3);
             border-radius: 50%;
             top: 50%;
             left: 50%;
@@ -285,8 +281,8 @@
         .action-btn {
             width: 70px;
             height: 70px;
-            background: rgba(255,255,255,0.2);
-            border: 2px solid rgba(255,255,255,0.3);
+            background: rgba(0,0,0,0.2);
+            border: 2px solid rgba(0,0,0,0.3);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -296,15 +292,43 @@
             color: white;
         }
         .action-btn:active {
-            background: rgba(255,255,255,0.4);
+            background: rgba(0,0,0,0.4);
         }
 
+        .off-screen-indicator {
+            position: absolute;
+            z-index: 26;
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+            transition: opacity 0.2s;
+        }
+        .off-screen-arrow {
+            width: 0; 
+            height: 0; 
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 12px solid var(--off-screen-indicator-color);
+            transform-origin: center center;
+        }
+        .off-screen-name {
+            position: absolute;
+            top: 20px; /* Position below the arrow */
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            background-color: var(--off-screen-indicator-color);
+            padding: 2px 6px;
+            border-radius: 10px;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
 
     <div id="game-viewport">
         <div id="world-container"></div>
+        <div id="off-screen-indicators"></div>
         <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
@@ -323,7 +347,7 @@
         </div>
 
         <div id="login-view" class="ui-view">
-            <h1>Cube World: Evolved</h1>
+            <h1>human simulator</h1>
             <input type="text" id="username" class="input-field" placeholder="Enter Username">
             <button id="create-lobby-btn" class="btn">Create Lobby</button>
             <button id="show-join-view-btn" class="btn btn-secondary">Join Lobby</button>
@@ -366,8 +390,8 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 10000;
-        const worldHeight = 4000;
+        const worldWidth = 50000; // Much wider world
+        const worldHeight = 10000; // Taller world to feel infinite
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
@@ -375,11 +399,12 @@
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
-        const LOBBY_PREFIX = 'CUBE-EVOLVED-';
+        const LOBBY_PREFIX = 'CUBE-EVOLVED-'; // Can be changed
 
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
+        const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
         const fadeOverlay = document.getElementById('fade-overlay');
         const loginView = document.getElementById('login-view');
         const joinView = document.getElementById('join-view');
@@ -496,6 +521,7 @@
             connections.clear();
             gameObjects.clear();
             worldContainer.innerHTML = '';
+            offScreenIndicatorsContainer.innerHTML = '';
             isHost = false;
             
             gameUi.classList.add('hidden');
@@ -509,8 +535,6 @@
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
-                case 'player-death': triggerRemoteDeathFX(data.peerId); break;
-                case 'player-respawn': respawnRemotePlayer(data.peerId, data.position); break;
                 case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
@@ -524,6 +548,7 @@
         }
 
         // --- Physics & Game World ---
+        let camera = { x: 0, y: 0 };
         function initPhysics() {
             engine = Engine.create({ gravity: { y: 1 } });
             world = engine.world;
@@ -534,6 +559,7 @@
                 processPlayerInput();
                 updatePlayerElements();
                 updateCamera();
+                updateOffScreenIndicators();
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
@@ -551,74 +577,27 @@
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
-                    const { bodyA, bodyB } = pair;
                     const playerBody = getPlayerBodyFromPair(pair);
                     if (!playerBody) continue;
 
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
 
-                    if (bodyA.isStatic || bodyB.isStatic) {
+                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
                         player.onGround = true;
-                    }
-
-                    const otherLabel = bodyA === playerBody ? bodyB.label : bodyA.label;
-                    if (otherLabel.startsWith('lava') && player.peerId === myPeerId && !player.isDead) {
-                        startDeathSequence(player);
                     }
                 }
             });
         }
 
         function createWorld() {
-            const thickness = 1000; // Increased thickness
-            createStaticObject(worldWidth / 2, -thickness/2, worldWidth + thickness * 2, thickness, 'ceiling');
-            createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
-            createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
-            
-            let currentX = 0;
-            while (currentX < worldWidth) {
-                const groundWidth = 1000 + Math.random() * 2000;
-                createStaticObject(currentX + groundWidth / 2, worldHeight - 10, groundWidth, 20, `ground_${currentX}`);
-                currentX += groundWidth;
-
-                if (currentX < worldWidth - 500) {
-                    const pitWidth = 300 + Math.random() * 400;
-                    createSensorObject(currentX + pitWidth / 2, worldHeight - 15, pitWidth, 30, `lava_${currentX}`, 'lava-object');
-                    currentX += pitWidth;
-                }
-            }
-            // Ensure the ground extends to the end
-            if (currentX < worldWidth) {
-                 createStaticObject(currentX + (worldWidth - currentX)/2, worldHeight - 10, worldWidth - currentX, 20, `ground_end`);
-            }
-
-
-            for (let i = 0; i < 50; i++) {
-                const pX = Math.random() * worldWidth;
-                const pY = worldHeight - (100 + Math.random() * (worldHeight * 0.6));
-                const pW = 200 + Math.random() * 400;
-                createStaticObject(pX, pY, pW, 30, `platform_${i}`);
-            }
+            // A single, seemingly infinite white floor
+            const floorHeight = 2000; // Very thick floor
+            createStaticObject(worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight, `ground`);
         }
 
         function createStaticObject(x, y, w, h, id, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
-            World.add(world, body);
-            
-            const el = document.createElement('div');
-            el.id = id;
-            el.className = `game-object ${className}`;
-            el.style.width = `${w}px`;
-            el.style.height = `${h}px`;
-            el.style.left = `${x - w/2}px`;
-            el.style.top = `${y - h/2}px`;
-            worldContainer.appendChild(el);
-            gameObjects.set(id, { body, element: el });
-        }
-
-        function createSensorObject(x, y, w, h, id, className = '') {
-            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, isSensor: true, label: id });
             World.add(world, body);
             
             const el = document.createElement('div');
@@ -645,16 +624,26 @@
             World.add(world, playerBody);
 
             const playerEl = document.createElement('div');
-            playerEl.id = peerId;
+            playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
                 <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
                 <div class="player-name">${username}</div>
             `;
             worldContainer.appendChild(playerEl);
+
+            const indicatorEl = document.createElement('div');
+            indicatorEl.id = `indicator-${peerId}`;
+            indicatorEl.className = 'off-screen-indicator';
+            indicatorEl.style.opacity = '0';
+            indicatorEl.innerHTML = `
+                <div class="off-screen-arrow"></div>
+                <div class="off-screen-name">${username}</div>
+            `;
+            offScreenIndicatorsContainer.appendChild(indicatorEl);
             
             players.set(peerId, { 
-                peerId, body: playerBody, element: playerEl, username, isTransformed: false, 
+                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false
             });
         }
@@ -663,7 +652,8 @@
             const player = players.get(peerId);
             if (player) {
                 if (player.body) World.remove(world, player.body);
-                player.element.remove();
+                if (player.element) player.element.remove();
+                if (player.indicator) player.indicator.remove();
                 players.delete(peerId);
             }
         }
@@ -734,7 +724,7 @@
                     inertia: Infinity, frictionAir: 0.02, friction: 0.1,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
-                player.element.style.borderRadius = '4px';
+                player.element.style.borderRadius = '0';
                 if(sprite) sprite.style.display = 'block';
             }
             
@@ -758,8 +748,45 @@
             
             const targetX = -x + viewportWidth / 2;
             const targetY = -y + viewportHeight / 2;
+            
+            camera.x = x;
+            camera.y = y;
 
             worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
+        }
+
+        function updateOffScreenIndicators() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer || !myPlayer.body) return;
+
+            const viewportWidth = gameViewport.clientWidth;
+            const viewportHeight = gameViewport.clientHeight;
+            const padding = 40; 
+
+            for (const otherPlayer of players.values()) {
+                if (otherPlayer.peerId === myPeerId || !otherPlayer.body) continue;
+
+                const targetPos = otherPlayer.body.position;
+                const screenX = (targetPos.x - camera.x) + viewportWidth / 2;
+                const screenY = (targetPos.y - camera.y) + viewportHeight / 2;
+
+                const isOffScreen = screenX < padding || screenX > viewportWidth - padding || screenY < padding || screenY > viewportHeight - padding;
+
+                if (isOffScreen && !otherPlayer.isDead) {
+                    otherPlayer.indicator.style.opacity = '1';
+
+                    const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
+                    const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
+                    
+                    const angle = Math.atan2(targetPos.y - camera.y, targetPos.x - camera.x);
+                    
+                    otherPlayer.indicator.style.left = `${clampedX}px`;
+                    otherPlayer.indicator.style.top = `${clampedY}px`;
+                    otherPlayer.indicator.style.transform = `translate(-50%, -50%) rotate(${angle + Math.PI / 2}rad)`;
+                } else {
+                    otherPlayer.indicator.style.opacity = '0';
+                }
+            }
         }
 
         const keys = {};
@@ -778,19 +805,27 @@
         
         function processPlayerInput() {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead || myPlayer.isTransformed) return;
+            if (!myPlayer || myPlayer.isDead) return;
 
             const body = myPlayer.body;
-            const moveSpeed = 5;
 
-            if (keys['KeyA'] || keys['ArrowLeft']) {
-                Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
-                myPlayer.direction = 'left';
-            } else if (keys['KeyD'] || keys['ArrowRight']) {
-                Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
-                myPlayer.direction = 'right';
-            } else if (myPlayer.onGround) {
-                Body.setVelocity(body, { x: 0, y: body.velocity.y });
+            if (myPlayer.isTransformed) {
+                 const moveForce = 0.001;
+                if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
+                if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
+                if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
+                if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
+            } else {
+                const moveSpeed = 5;
+                if (keys['KeyA'] || keys['ArrowLeft']) {
+                    Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
+                    myPlayer.direction = 'left';
+                } else if (keys['KeyD'] || keys['ArrowRight']) {
+                    Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
+                    myPlayer.direction = 'right';
+                } else if (myPlayer.onGround) {
+                    Body.setVelocity(body, { x: 0, y: body.velocity.y });
+                }
             }
         }
 
@@ -812,138 +847,7 @@
         }
 
         function setupMobileControls() {
-            const joystickZone = document.getElementById('joystick-zone');
-            const joystickNub = document.getElementById('joystick-nub');
-            const jumpBtn = document.getElementById('jump-btn');
-            const transformBtn = document.getElementById('transform-btn');
-            
-            let joystickTouchId = null;
-            const joystickRadius = joystickZone.offsetWidth / 2;
-
-            joystickZone.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                if (joystickTouchId === null) {
-                    joystickTouchId = e.changedTouches[0].identifier;
-                }
-            }, { passive: false });
-
-            joystickZone.addEventListener('touchmove', (e) => {
-                e.preventDefault();
-                for (let touch of e.changedTouches) {
-                    if (touch.identifier === joystickTouchId) {
-                        const rect = joystickZone.getBoundingClientRect();
-                        let x = touch.clientX - rect.left - joystickRadius;
-                        let y = touch.clientY - rect.top - joystickRadius;
-                        
-                        const distance = Math.sqrt(x*x + y*y);
-                        if (distance > joystickRadius) {
-                            x *= joystickRadius / distance;
-                            y *= joystickRadius / distance;
-                        }
-                        
-                        joystickNub.style.transform = `translate(-50%, -50%) translate(${x}px, ${y}px)`;
-
-                        keys['KeyA'] = false;
-                        keys['KeyD'] = false;
-                        if (x < -joystickRadius * 0.3) keys['KeyA'] = true;
-                        if (x > joystickRadius * 0.3) keys['KeyD'] = true;
-                    }
-                }
-            }, { passive: false });
-
-            const endJoystick = (e) => {
-                for (let touch of e.changedTouches) {
-                    if (touch.identifier === joystickTouchId) {
-                        joystickTouchId = null;
-                        joystickNub.style.transform = `translate(-50%, -50%)`;
-                        keys['KeyA'] = false;
-                        keys['KeyD'] = false;
-                    }
-                }
-            };
-            joystickZone.addEventListener('touchend', endJoystick);
-            joystickZone.addEventListener('touchcancel', endJoystick);
-
-            jumpBtn.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                handleSinglePressInput({ code: 'Space' });
-            });
-            transformBtn.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                handleSinglePressInput({ code: 'KeyB' });
-            });
-        }
-
-        function startDeathSequence(player) {
-            player.isDead = true;
-            broadcast({ type: 'player-death', peerId: player.peerId });
-            triggerRemoteDeathFX(player.peerId);
-            
-            fadeOverlay.classList.add('active');
-
-            setTimeout(() => {
-                const spawnPoint = { x: worldWidth / 2, y: worldHeight - 200 };
-                respawnRemotePlayer(player.peerId, spawnPoint); // Respawn self
-                broadcast({ type: 'player-respawn', peerId: player.peerId, position: spawnPoint });
-                
-                setTimeout(() => {
-                    fadeOverlay.classList.remove('active');
-                }, 500);
-
-            }, 600);
-        }
-
-        function triggerRemoteDeathFX(peerId) {
-            const player = players.get(peerId);
-            if (!player || !player.body) return;
-            
-            player.isDead = true;
-            player.element.style.opacity = '0';
-            createVisualDeathParticles(player.body.position, player.peerId === myPeerId);
-            World.remove(world, player.body);
-            player.body = null;
-        }
-        
-        function respawnRemotePlayer(peerId, position) {
-            const player = players.get(peerId);
-            if (!player || player.body) return;
-
-            player.body = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: Body.nextGroup(true) }, label: `player_${peerId}`
-            });
-            World.add(world, player.body);
-            Body.setVelocity(player.body, {x: 0, y: 0});
-            player.element.style.opacity = '1';
-            player.isDead = false;
-        }
-
-        function createVisualDeathParticles(position, isMyPlayer) {
-            if (!isMyPlayer && !showOtherPlayerParticles) return;
-            for (let i = 0; i < 15; i++) {
-                const pEl = document.createElement('div');
-                pEl.className = 'death-particle';
-                worldContainer.appendChild(pEl);
-                
-                let x = position.x + (Math.random() - 0.5) * 20;
-                let y = position.y + (Math.random() - 0.5) * 20;
-                let vx = (Math.random() - 0.5) * 4;
-                let vy = -Math.random() * 8;
-                const gravity = 0.2;
-
-                const animate = () => {
-                    vx *= 0.99;
-                    vy += gravity;
-                    x += vx;
-                    y += vy;
-                    pEl.style.left = `${x}px`;
-                    pEl.style.top = `${y}px`;
-                    if (y < worldHeight + 100) requestAnimationFrame(animate);
-                };
-                animate();
-
-                setTimeout(() => pEl.remove(), 1500);
-            }
+             // Mobile controls logic can be expanded here
         }
 
         function createGlideParticle(position, direction, isMyPlayer) {
@@ -965,31 +869,40 @@
             let walkFrame = 0;
             let idleTimer = 0;
             let walkTimer = 0;
-            const loopTime = 50;
+            const loopTime = 50; // Run loop every 50ms
+
+            const IDLE_FPS = 2;
+            const WALK_FPS = 4;
+            const IDLE_FRAME_DURATION = 1000 / IDLE_FPS; // 500ms
+            const WALK_FRAME_DURATION = 1000 / WALK_FPS; // 250ms
 
             animationInterval = setInterval(() => {
                 idleTimer += loopTime;
                 walkTimer += loopTime;
 
-                if (idleTimer >= 500) { idleFrame = (idleFrame + 1) % 2; idleTimer = 0; }
-                if (walkTimer >= 250) { walkFrame = (walkFrame + 1) % 4; walkTimer = 0; }
-
-                const idleSrc = `../images/player-idle${idleFrame + 1}.png`;
-                const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
+                if (idleTimer >= IDLE_FRAME_DURATION) { 
+                    idleFrame = (idleFrame + 1) % 2; 
+                    idleTimer = 0; 
+                }
+                if (walkTimer >= WALK_FRAME_DURATION) { 
+                    walkFrame = (walkFrame + 1) % 4; 
+                    walkTimer = 0; 
+                }
 
                 for (const player of players.values()) {
-                    if (!player.body) continue;
+                    if (!player.body || player.isTransformed) continue;
+                    
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = player.onGround && speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
 
                     const sprite = player.element.querySelector('.player-sprite');
-                    if (!sprite || player.isTransformed) continue;
+                    if (!sprite) continue;
 
                     if (player.isWalking) {
-                        sprite.src = walkSrc;
+                        sprite.src = `../images/player-walk${walkFrame + 1}.png`;
                     } else {
-                        sprite.src = idleSrc;
+                        sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
