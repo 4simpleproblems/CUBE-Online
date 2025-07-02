@@ -61,7 +61,7 @@
         
         .player-object {
             background-color: transparent; /* Player container is invisible */
-            transition: border-radius 0.2s ease;
+            transition: border-radius 0.2s ease, opacity 0.2s ease;
         }
 
         .lava-object {
@@ -69,9 +69,11 @@
             box-shadow: 0 0 20px var(--lava-color);
         }
 
-        .house-object {
-            background-color: #8b4513;
-            border: 5px solid #5d2f0e;
+        .death-particle {
+            background-color: #000;
+            position: absolute;
+            width: 5px;
+            height: 5px;
         }
 
         .player-sprite {
@@ -94,6 +96,22 @@
             background-color: rgba(0, 0, 0, 0.5);
             padding: 2px 5px;
             border-radius: 4px;
+        }
+
+        #fade-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 20;
+            transition: opacity 0.5s ease-in-out;
+        }
+        #fade-overlay.active {
+            opacity: 1;
         }
 
         .ui-view {
@@ -238,6 +256,7 @@
 
     <div id="game-viewport">
         <div id="world-container"></div>
+        <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
             <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
@@ -288,9 +307,8 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const houses = new Map();
-        const worldWidth = 6000; // Increased map size
-        const worldHeight = 2000; // Increased map size
+        const worldWidth = 6000;
+        const worldHeight = 2000;
         let isTransformed = false;
         let animationInterval;
 
@@ -302,6 +320,7 @@
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
+        const fadeOverlay = document.getElementById('fade-overlay');
         const loginView = document.getElementById('login-view');
         const joinView = document.getElementById('join-view');
         const loadingView = document.getElementById('loading-view');
@@ -415,7 +434,6 @@
             players.clear();
             connections.clear();
             gameObjects.clear();
-            houses.clear();
             worldContainer.innerHTML = '';
             isHost = false;
             
@@ -451,16 +469,9 @@
                 processPlayerInput();
                 updatePlayerElements();
                 updateCamera();
-                checkPlayerInteractions();
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
-                    const speed = Vector.magnitude(myPlayer.body.velocity);
-                    const onGround = myPlayer.onGround;
-
-                    myPlayer.isIdle = speed < 0.5 && onGround;
-                    myPlayer.isWalking = speed >= 0.5 && onGround;
-
                      broadcast({
                         type: 'player-update',
                         peerId: myPeerId,
@@ -471,16 +482,50 @@
                     });
                 }
             });
+
+            Events.on(engine, 'collisionStart', (event) => {
+                const pairs = event.pairs;
+                for (const pair of pairs) {
+                    const { bodyA, bodyB } = pair;
+                    const playerBody = getPlayerBodyFromPair(pair);
+                    if (!playerBody) continue;
+
+                    const player = players.get(playerBody.label.split('_')[1]);
+                    if (!player) continue;
+
+                    // Ground check
+                    if (bodyA.isStatic || bodyB.isStatic) {
+                        player.onGround = true;
+                    }
+
+                    // Lava check
+                    const otherLabel = bodyA === playerBody ? bodyB.label : bodyA.label;
+                    if (otherLabel.startsWith('lava') && player.peerId === myPeerId && !player.isDead) {
+                        startDeathSequence(player);
+                    }
+                }
+            });
         }
 
         function createWorld() {
             const thickness = 200;
             // World bounds
-            createStaticObject(worldWidth / 2, worldHeight + thickness/2, worldWidth, thickness, 'ground');
             createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling');
             createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
             createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
+            // Ground with a pit
+            const pitX = 1800;
+            const pitWidth = 400;
+            const ground1Width = pitX - pitWidth / 2;
+            createStaticObject(ground1Width / 2, worldHeight - 10, ground1Width, 20, 'ground1');
+            const ground2X = pitX + pitWidth / 2;
+            const ground2Width = worldWidth - ground2X;
+            createStaticObject(ground2X + ground2Width / 2, worldHeight - 10, ground2Width, 20, 'ground2');
+            
+            // Lava Pit
+            createSensorObject(pitX, worldHeight - 15, pitWidth, 30, 'lava1', 'lava-object');
+
             // Platforms
             createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
             createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
@@ -489,18 +534,10 @@
             createStaticObject(3000, worldHeight - 300, 800, 30, 'platform5');
             createStaticObject(4000, worldHeight - 600, 200, 30, 'platform6');
             createStaticObject(4500, worldHeight - 450, 600, 30, 'platform7');
-
-            // Lava Pits
-            createSensorObject(1800, worldHeight - 15, 400, 30, 'lava1', 'lava-object');
-            createSensorObject(3500, worldHeight - 15, 300, 30, 'lava2', 'lava-object');
-
-            // Houses
-            createHouse(800, worldHeight - 120, 'house1', {x: 100, y: -1000});
-            createHouse(2800, worldHeight - 120, 'house2', {x: 100, y: -2000});
         }
 
         function createStaticObject(x, y, w, h, id, className = '') {
-            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5 });
+            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
             World.add(world, body);
             
             const el = document.createElement('div');
@@ -529,38 +566,6 @@
             gameObjects.set(id, { body, element: el });
         }
         
-        function createHouse(x, y, id, interiorPos) {
-            const width = 200;
-            const height = 120;
-            const doorWidth = 40;
-            const doorHeight = 60;
-
-            // Main house body (no physics)
-            const el = document.createElement('div');
-            el.id = id;
-            el.className = 'game-object house-object';
-            el.style.width = `${width}px`;
-            el.style.height = `${height}px`;
-            el.style.left = `${x - width/2}px`;
-            el.style.top = `${y - height/2}px`;
-            worldContainer.appendChild(el);
-            
-            // Door sensor
-            const doorBody = Bodies.rectangle(x, y + (height/2 - doorHeight/2), doorWidth, doorHeight, { 
-                isStatic: true, 
-                isSensor: true,
-                label: `door_${id}`
-            });
-            World.add(world, doorBody);
-
-            houses.set(id, {
-                element: el,
-                door: doorBody,
-                exitPos: { x, y: y + height/2 - 30 },
-                interiorPos
-            });
-        }
-        
         // --- Player Management ---
         function createPlayer(peerId, username, position) {
             if (players.has(peerId)) return;
@@ -568,7 +573,7 @@
             const collisionGroup = Body.nextGroup(true);
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: collisionGroup }, // Players are in their own group
+                collisionFilter: { group: collisionGroup },
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
@@ -583,6 +588,7 @@
             worldContainer.appendChild(playerEl);
             
             players.set(peerId, { 
+                peerId,
                 body: playerBody, 
                 element: playerEl, 
                 username, 
@@ -591,7 +597,7 @@
                 isWalking: false,
                 onGround: false,
                 direction: 'right',
-                inHouse: null
+                isDead: false
             });
         }
 
@@ -611,14 +617,9 @@
                 player = players.get(data.peerId);
             }
             
-            if (player && player.body) {
+            if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
-                
-                const speed = Vector.magnitude(player.body.velocity);
-                player.onGround = Math.abs(player.body.velocity.y) < 0.1;
-                player.isIdle = speed < 0.5 && player.onGround;
-                player.isWalking = speed >= 0.5 && player.onGround;
                 player.direction = data.direction || 'right';
 
                 if (player.isTransformed !== data.isTransformed) {
@@ -653,7 +654,7 @@
         }
         
         function togglePlayerTransformation(player, forceState) {
-            const isMyPlayer = player === players.get(myPeerId);
+            const isMyPlayer = player.peerId === myPeerId;
             const shouldBeTransformed = forceState !== undefined ? forceState : !player.isTransformed;
 
             if (player.isTransformed === shouldBeTransformed) return;
@@ -690,7 +691,7 @@
         // --- Camera, Input & Animation ---
         function updateCamera() {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer) return;
+            if (!myPlayer || !myPlayer.body) return;
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
@@ -707,11 +708,9 @@
         
         function processPlayerInput() {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isTransformed) return;
+            if (!myPlayer || myPlayer.isDead || myPlayer.isTransformed) return;
 
             const body = myPlayer.body;
-            myPlayer.onGround = Math.abs(body.velocity.y) < 0.1;
-
             const moveSpeed = 5;
             let targetVelocityX = 0;
 
@@ -737,56 +736,64 @@
 
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer) return;
+            if (!myPlayer || myPlayer.isDead) return;
             const body = myPlayer.body;
 
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
+                     myPlayer.onGround = false; // Prevent double jumps
                 }
             }
             
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
-
-            if (e.code === 'KeyE') {
-                if (myPlayer.inHouse) {
-                    const house = houses.get(myPlayer.inHouse);
-                    Body.setPosition(body, house.exitPos);
-                    myPlayer.inHouse = null;
-                } else {
-                    for (const [id, house] of houses.entries()) {
-                         const collisions = Detector.collisions([[body, house.door]], engine);
-                         if (collisions.length > 0) {
-                             Body.setPosition(body, house.interiorPos);
-                             myPlayer.inHouse = id;
-                             break;
-                         }
-                    }
-                }
-            }
         }
 
-        function checkPlayerInteractions() {
-            const myPlayer = players.get(myPeerId);
-            if (!myPlayer) return;
+        function startDeathSequence(player) {
+            player.isDead = true;
+            player.element.style.opacity = '0';
+            createDeathParticles(player.body.position);
+            World.remove(world, player.body);
             
-            const allBodies = Composite.allBodies(world);
-            const collisions = Detector.collisions([[myPlayer.body, ...allBodies]], engine);
+            fadeOverlay.classList.add('active');
 
-            for (const collision of collisions) {
-                const otherLabel = collision.bodyA.label === myPlayer.body.label ? collision.bodyB.label : collision.bodyA.label;
-                if (otherLabel.startsWith('lava')) {
-                    respawnPlayer(myPlayer);
-                }
-            }
+            setTimeout(() => {
+                const spawnPoint = { x: worldWidth / 2, y: worldHeight - 200 };
+                player.body = Bodies.rectangle(spawnPoint.x, spawnPoint.y, 40, 60, {
+                    inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                    collisionFilter: player.body.collisionFilter, label: player.body.label
+                });
+                World.add(world, player.body);
+                Body.setVelocity(player.body, {x: 0, y: 0});
+                
+                setTimeout(() => {
+                    fadeOverlay.classList.remove('active');
+                    player.element.style.opacity = '1';
+                    player.isDead = false;
+                }, 500);
+
+            }, 600);
         }
 
-        function respawnPlayer(player) {
-            const spawnPoint = { x: worldWidth / 2, y: worldHeight - 200 };
-            Body.setPosition(player.body, spawnPoint);
-            Body.setVelocity(player.body, {x: 0, y: 0});
+        function createDeathParticles(position) {
+            for (let i = 0; i < 15; i++) {
+                const particle = Bodies.rectangle(
+                    position.x + (Math.random() - 0.5) * 20,
+                    position.y + (Math.random() - 0.5) * 20,
+                    5, 5, { frictionAir: 0.05, label: 'particle' }
+                );
+                Body.applyForce(particle, particle.position, {
+                    x: (Math.random() - 0.5) * 0.02,
+                    y: -Math.random() * 0.05
+                });
+                World.add(world, particle);
+
+                setTimeout(() => {
+                    World.remove(world, particle);
+                }, 1000 + Math.random() * 500);
+            }
         }
 
         function startAnimationLoop() {
@@ -814,6 +821,11 @@
                 const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
 
                 for (const player of players.values()) {
+                    // Update animation state based on physics
+                    const speed = Vector.magnitude(player.body.velocity);
+                    player.isWalking = player.onGround && speed > 0.5;
+                    player.isIdle = player.onGround && !player.isWalking;
+
                     const sprite = player.element.querySelector('.player-sprite');
                     if (!sprite || player.isTransformed) continue;
 
@@ -824,6 +836,12 @@
                     }
                 }
             }, loopTime);
+        }
+
+        function getPlayerBodyFromPair(pair) {
+            if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
+            if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
+            return null;
         }
         
         // --- UI & Utility Functions ---
