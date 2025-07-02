@@ -3,68 +3,83 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cube World Online</title>
+    <title>Cube World: Evolved</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+
+        :root {
+            --background-color: #f5f5f5;
+            --primary-text-color: #1a1a1a;
+            --border-color: #e0e0e0;
+            --accent-color: #007aff;
+            --accent-hover-color: #0056b3;
+            --secondary-color: #6c757d;
+            --secondary-hover-color: #5a6268;
+            --danger-color: #dc3545;
+            --danger-hover-color: #c82333;
+        }
 
         body {
-            background-color: #222;
-            color: #eee;
-            font-family: 'Press Start 2P', cursive;
+            background-color: var(--background-color);
+            color: var(--primary-text-color);
+            font-family: 'Inter', sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
             height: 100vh;
             margin: 0;
-            image-rendering: pixelated;
+            overflow: hidden;
         }
 
-        #game-container {
-            border: 4px solid #888;
-            background-color: #c2c2c2;
-            width: 80vw;
-            height: 60vh;
-            max-width: 640px;
-            max-height: 480px;
+        #game-viewport {
+            border: 2px solid var(--border-color);
+            background-color: #ffffff;
+            width: 90vw;
+            height: 75vh;
+            max-width: 960px;
+            max-height: 640px;
             position: relative;
             overflow: hidden;
             border-radius: 8px;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        }
-
-        .player {
-            width: 10px;
-            height: 20px;
-            position: absolute;
-            transition: left 0.1s linear, top 0.1s linear;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
         }
         
-        .player-head {
-            width: 10px;
-            height: 10px;
-            background-color: #333;
-            border-radius: 50%;
+        #world-container {
             position: absolute;
-            top: -5px;
+            transition: transform 0.2s ease-out;
         }
 
-        .player-body {
-            width: 2px;
-            height: 10px;
-            background-color: #333;
+        .game-object {
             position: absolute;
-            top: 5px;
-            left: 4px;
+            background-color: var(--primary-text-color);
+        }
+        
+        .player-object {
+            border-radius: 4px;
+            transition: border-radius 0.2s ease;
+        }
+        
+        .player-name {
+            position: absolute;
+            top: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            color: var(--primary-text-color);
+            white-space: nowrap;
+            font-weight: bold;
         }
 
-        .login-view {
+        .ui-view {
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(0,0,0,0.7);
+            background-color: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(5px);
             position: absolute;
             top: 0;
             left: 0;
@@ -73,370 +88,492 @@
             z-index: 10;
         }
         
-        .hidden {
-            display: none !important;
-        }
+        .hidden { display: none !important; }
 
-        #login-screen h1 {
-            font-size: 24px;
-            margin-bottom: 20px;
-            text-shadow: 2px 2px #000;
+        .ui-view h1 {
+            font-size: 2.5rem;
+            margin-bottom: 25px;
         }
 
         .input-field {
-            padding: 10px;
-            font-family: 'Press Start 2P', cursive;
-            border: 2px solid #888;
-            background-color: #eee;
+            padding: 12px;
+            font-family: 'Inter', sans-serif;
+            border: 2px solid var(--border-color);
+            background-color: #fff;
             text-align: center;
-            border-radius: 4px;
+            border-radius: 6px;
             margin-bottom: 15px;
             width: 80%;
-            max-width: 250px;
+            max-width: 300px;
+            font-size: 1rem;
         }
 
         .btn {
-            padding: 10px 20px;
-            font-family: 'Press Start 2P', cursive;
-            border: 2px solid #888;
-            background-color: #5cb85c;
+            padding: 12px 24px;
+            font-family: 'Inter', sans-serif;
+            font-weight: bold;
+            border: none;
+            background-color: var(--accent-color);
             color: white;
             cursor: pointer;
-            border-radius: 4px;
-            text-shadow: 1px 1px #000;
+            border-radius: 6px;
+            text-shadow: none;
             margin: 5px;
+            font-size: 1rem;
+            transition: background-color 0.2s ease;
         }
         
-        .btn:hover {
-            background-color: #4cae4c;
-        }
-        
-        .btn-secondary {
-            background-color: #f0ad4e;
-        }
-        .btn-secondary:hover {
-            background-color: #ec971f;
-        }
+        .btn:hover { background-color: var(--accent-hover-color); }
+        .btn-secondary { background-color: var(--secondary-color); }
+        .btn-secondary:hover { background-color: var(--secondary-hover-color); }
+        .btn-danger { background-color: var(--danger-color); }
+        .btn-danger:hover { background-color: var(--danger-hover-color); }
 
+        #game-ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 5;
+        }
+        
         #status {
             margin-top: 20px;
-            font-size: 12px;
+            font-size: 1rem;
             text-align: center;
         }
         
         #lobby-code-display {
-            font-size: 16px;
-            margin-top: 10px;
-            padding: 10px;
-            background: #333;
-            border-radius: 4px;
-            border: 2px solid #888;
+            font-size: 1.2rem;
+            padding: 8px 12px;
+            background: var(--primary-text-color);
+            color: var(--background-color);
+            border-radius: 6px;
+            font-weight: bold;
         }
-        
-        .player-name {
-            position: absolute;
-            bottom: -15px;
-            left: 50%;
-            transform: translateX(-50%);
-            font-size: 8px;
-            color: #333;
-            white-space: nowrap;
+
+        .loader {
+            border: 4px solid var(--border-color);
+            border-top: 4px solid var(--accent-color);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
         }
-        
-        .message-box-hidden { display: none !important; }
-        #message-box {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.6); display: flex;
-            align-items: center; justify-content: center; z-index: 20;
-        }
-        #message-box-content {
-            background-color: #c2c2c2; color: #222; padding: 30px;
-            border: 4px solid #888; border-radius: 8px; text-align: center;
-            box-shadow: 0 0 20px rgba(0,0,0,0.5);
-        }
-        #message-box-ok { margin-top: 20px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
     </style>
 </head>
 <body>
 
-    <div id="game-container">
-        <!-- Initial Login View -->
-        <div id="login-view" class="login-view">
-            <h1>Cube World Online</h1>
+    <div id="game-viewport">
+        <div id="world-container"></div>
+
+        <div id="game-ui" class="hidden">
+            <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
+            <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+        </div>
+
+        <div id="login-view" class="ui-view">
+            <h1>Cube World: Evolved</h1>
             <input type="text" id="username" class="input-field" placeholder="Enter Username">
             <button id="create-lobby-btn" class="btn">Create Lobby</button>
             <button id="show-join-view-btn" class="btn btn-secondary">Join Lobby</button>
         </div>
         
-        <!-- Join Lobby View -->
-        <div id="join-view" class="login-view hidden">
+        <div id="join-view" class="ui-view hidden">
              <h1>Join a Lobby</h1>
              <input type="text" id="username-join" class="input-field" placeholder="Enter Username">
              <input type="text" id="lobby-code-input" class="input-field" placeholder="Enter 8-Digit Code">
              <button id="join-lobby-btn" class="btn">Join</button>
              <button id="back-to-main-btn" class="btn btn-secondary">Back</button>
         </div>
+
+        <div id="loading-view" class="ui-view hidden">
+            <h1 id="loading-title">Creating Lobby...</h1>
+            <p id="loading-code-display" style="font-size: 1.5rem; margin-bottom: 25px;"></p>
+            <div class="loader"></div>
+            <p style="margin-top: 25px;">Connecting...</p>
+        </div>
     </div>
 
     <div id="status"></div>
 
-    <div id="message-box" class="message-box-hidden">
-        <div id="message-box-content">
-            <p id="message-text"></p>
-            <button id="message-box-ok" class="btn">OK</button>
-        </div>
-    </div>
-
     <script>
-        // --- PeerJS & Game State ---
-        let peer;
-        let myPeerId;
-        let lobbyCode;
-        let isHost = false;
-        const connections = new Map();
+        // --- Matter.js Aliases ---
+        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
+
+        // --- Game & Physics State ---
+        let engine, world, runner;
         const players = new Map();
-        const LOBBY_PREFIX = 'CUBE-WORLD-';
+        const gameObjects = new Map();
+        const worldWidth = 3000;
+        const worldHeight = 1500;
+        let isTransformed = false;
+
+        // --- PeerJS State ---
+        let peer, myPeerId, lobbyCode, isHost = false;
+        const connections = new Map();
+        const LOBBY_PREFIX = 'CUBE-EVOLVED-';
 
         // --- UI Elements ---
+        const gameViewport = document.getElementById('game-viewport');
+        const worldContainer = document.getElementById('world-container');
         const loginView = document.getElementById('login-view');
         const joinView = document.getElementById('join-view');
-        const statusDiv = document.getElementById('status');
-        
-        // --- UI Event Listeners ---
-        document.getElementById('create-lobby-btn').addEventListener('click', () => {
-            const username = document.getElementById('username').value.trim();
-            if (username) {
-                isHost = true;
+        const loadingView = document.getElementById('loading-view');
+        const gameUi = document.getElementById('game-ui');
+        const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
+        const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
+
+        // --- Event Listeners ---
+        document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
+        document.getElementById('join-lobby-btn').addEventListener('click', () => handleLobbyAction(false));
+        document.getElementById('show-join-view-btn').addEventListener('click', showJoinView);
+        document.getElementById('back-to-main-btn').addEventListener('click', showMainView);
+        leaveLobbyBtn.addEventListener('click', leaveLobby);
+        deleteLobbyBtn.addEventListener('click', leaveLobby);
+
+        function handleLobbyAction(isCreating) {
+            isHost = isCreating;
+            const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
+            if (!username) { alert('Please enter a username.'); return; }
+
+            if (isCreating) {
                 lobbyCode = generateLobbyCode();
-                initializePeer(username, LOBBY_PREFIX + lobbyCode);
             } else {
-                showMessage('Please enter a username.');
+                lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
+                if (!lobbyCode || lobbyCode.length !== 8) { alert('Please enter a valid 8-digit lobby code.'); return; }
             }
-        });
+            
+            showLoadingScreen(isCreating);
+            initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
+        }
 
-        document.getElementById('show-join-view-btn').addEventListener('click', () => {
-            loginView.classList.add('hidden');
-            joinView.classList.remove('hidden');
-            // Carry over the username if it was already entered
-            document.getElementById('username-join').value = document.getElementById('username').value;
-        });
-
-        document.getElementById('join-lobby-btn').addEventListener('click', () => {
-            const username = document.getElementById('username-join').value.trim();
-            const codeInput = document.getElementById('lobby-code-input').value.trim().toUpperCase();
-            if (!username) {
-                showMessage('Please enter a username.');
-                return;
-            }
-            if (!codeInput || codeInput.length !== 8) {
-                showMessage('Please enter a valid 8-digit lobby code.');
-                return;
-            }
-            isHost = false;
-            lobbyCode = codeInput;
-            // Clients get a random peer ID so multiple can join the same lobby
-            initializePeer(username, null);
-        });
-
-        document.getElementById('back-to-main-btn').addEventListener('click', () => {
-            joinView.classList.add('hidden');
-            loginView.classList.remove('hidden');
-        });
-
-        // --- PeerJS Initialization ---
+        // --- PeerJS Initialization & Lobby Logic ---
         function initializePeer(username, requestedId) {
-            // If no ID is requested (client), PeerJS will generate one.
-            // If an ID is requested (host), PeerJS will use that.
             peer = new Peer(requestedId, {});
-
             peer.on('open', id => {
                 myPeerId = id;
-                console.log('My peer ID is: ' + id);
+                console.log('PeerJS connection open. My ID:', myPeerId);
                 
-                // Hide all login views
+                // --- Start Game ---
                 loginView.classList.add('hidden');
                 joinView.classList.add('hidden');
+                loadingView.classList.add('hidden');
+                gameUi.classList.remove('hidden');
                 
-                // Display lobby code
-                statusDiv.innerHTML = `Lobby Code: <span id="lobby-code-display">${lobbyCode}</span>`;
+                initPhysics();
+                createWorldBounds();
+                
+                const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
+                createPlayer(myPeerId, username, startPos);
+                
+                document.addEventListener('keydown', handleKeyDown);
+                document.addEventListener('keyup', handleKeyUp);
 
-                createPlayer(myPeerId, username, { x: Math.random() * 300 + 50, y: Math.random() * 200 + 50 });
-                document.addEventListener('keydown', handleKeyPress);
-
-                if (!isHost) {
-                    // Client connects to the host
+                if (isHost) {
+                    updateLobbyControls();
+                } else {
                     connectToPeer(LOBBY_PREFIX + lobbyCode);
                 }
             });
-
-            peer.on('connection', conn => {
-                console.log('Incoming connection from', conn.peer);
-                setupConnection(conn);
-            });
-
-            peer.on('error', err => {
-                console.error('PeerJS error:', err);
-                showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
-                // Reset UI
-                joinView.classList.add('hidden');
-                loginView.classList.remove('hidden');
-            });
+            peer.on('connection', setupConnection);
+            peer.on('error', handleError);
         }
 
-        // --- Connection Management & Mesh Networking ---
         function setupConnection(conn) {
             conn.on('open', () => {
-                console.log('Connection established with', conn.peer);
                 connections.set(conn.peer, conn);
+                console.log(`Connection established with ${conn.peer}. Total connections: ${connections.size}`);
+                updateLobbyControls();
 
-                // --- Host Logic: Welcome new players ---
                 if (isHost) {
-                    // 1. Send the new player a list of everyone already here.
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
                     conn.send({ type: 'lobby-roster', peers: allPeerIds });
-                    
-                    // 2. Tell everyone else about the new player.
                     broadcast({ type: 'new-peer-announcement', peerId: conn.peer }, conn.peer);
                 }
                 
-                // --- All players: Send their info to the new connection ---
-                const myPlayerData = players.get(myPeerId);
+                const myPlayer = players.get(myPeerId);
                 conn.send({
                     type: 'player-update',
                     peerId: myPeerId,
-                    username: myPlayerData.username,
-                    position: myPlayerData.position
+                    username: myPlayer.username,
+                    position: myPlayer.body.position,
+                    isTransformed: myPlayer.isTransformed
                 });
             });
-
-            conn.on('data', data => handleData(data, conn.peer));
-
-            conn.on('close', () => {
-                console.log('Connection closed with', conn.peer);
-                removePlayer(conn.peer);
-                connections.delete(conn.peer);
-                broadcast({ type: 'player-leave', peerId: conn.peer });
-            });
+            conn.on('data', handleData);
+            conn.on('close', () => handleDisconnect(conn.peer));
         }
         
+        function handleDisconnect(peerId) {
+            console.log(`Connection closed with ${peerId}`);
+            connections.delete(peerId);
+            removePlayer(peerId);
+            updateLobbyControls();
+            broadcast({ type: 'player-leave', peerId });
+        }
+
         function connectToPeer(peerId) {
             if (!connections.has(peerId) && peerId !== myPeerId) {
-                console.log('Attempting to connect to', peerId);
-                const conn = peer.connect(peerId);
-                setupConnection(conn);
+                console.log('Connecting to host/peer:', peerId);
+                setupConnection(peer.connect(peerId));
             }
+        }
+        
+        function leaveLobby() {
+            if (peer) {
+                peer.destroy(); // This closes all connections and disconnects from the server
+            }
+            // Reset game state
+            World.clear(world);
+            Engine.clear(engine);
+            Runner.stop(runner);
+            players.clear();
+            connections.clear();
+            worldContainer.innerHTML = ''; // Clear DOM elements
+            isHost = false;
+            
+            // Reset UI
+            gameUi.classList.add('hidden');
+            showMainView();
         }
 
         // --- Data Handling ---
         function handleData(data, peerId) {
             switch(data.type) {
-                case 'player-update':
-                    updatePlayer(data.peerId, data);
-                    break;
-                case 'player-leave':
-                    removePlayer(data.peerId);
-                    break;
-                // --- Client Logic: Connect to other peers in the lobby ---
-                case 'lobby-roster':
-                    console.log('Received lobby roster:', data.peers);
-                    data.peers.forEach(p => connectToPeer(p));
-                    break;
-                case 'new-peer-announcement':
-                    console.log('New peer announced:', data.peerId);
-                    connectToPeer(data.peerId);
-                    break;
+                case 'player-update': updatePlayer(data); break;
+                case 'player-leave': removePlayer(data.peerId); break;
+                case 'lobby-roster': data.peers.forEach(connectToPeer); break;
+                case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
         }
 
         function broadcast(data, excludePeerId = null) {
             for (const [peerId, conn] of connections.entries()) {
-                if (peerId !== excludePeerId) {
-                    conn.send(data);
-                }
+                if (peerId !== excludePeerId) conn.send(data);
             }
         }
 
-        // --- Game Logic ---
-        const gameContainer = document.getElementById('game-container');
+        // --- Physics & Game World ---
+        function initPhysics() {
+            engine = Engine.create({ gravity: { y: 1 } });
+            world = engine.world;
+            runner = Runner.create();
+            Runner.run(runner, engine);
+            
+            Events.on(engine, 'afterUpdate', () => {
+                updatePlayerElements();
+                updateCamera();
+                // Broadcast our state at a fixed interval
+                const myPlayer = players.get(myPeerId);
+                if (myPlayer && myPlayer.body) {
+                     broadcast({
+                        type: 'player-update',
+                        peerId: myPeerId,
+                        position: myPlayer.body.position,
+                        velocity: myPlayer.body.velocity,
+                        isTransformed: myPlayer.isTransformed
+                    });
+                }
+            });
+        }
 
+        function createWorldBounds() {
+            const thickness = 200;
+            createStaticObject(worldWidth / 2, worldHeight + thickness/2, worldWidth, thickness, 'ground'); // Floor
+            createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling'); // Ceiling
+            createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall'); // Left Wall
+            createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall'); // Right Wall
+            
+            // Add some platforms
+            createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
+            createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
+            createStaticObject(1500, worldHeight - 250, 300, 30, 'platform3');
+            createStaticObject(2200, worldHeight - 500, 500, 30, 'platform4');
+        }
+
+        function createStaticObject(x, y, w, h, id) {
+            const body = Bodies.rectangle(x, y, w, h, { isStatic: true });
+            World.add(world, body);
+            
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'game-object';
+            el.style.width = `${w}px`;
+            el.style.height = `${h}px`;
+            el.style.left = `${x - w/2}px`;
+            el.style.top = `${y - h/2}px`;
+            worldContainer.appendChild(el);
+            gameObjects.set(id, { body, element: el });
+        }
+        
+        // --- Player Management ---
         function createPlayer(peerId, username, position) {
-            if (document.getElementById(peerId)) return;
+            if (players.has(peerId)) return;
+            
+            const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
+                inertia: Infinity, // Prevents rotation
+                frictionAir: 0.02,
+                friction: 0.1
+            });
+            World.add(world, playerBody);
+
             const playerEl = document.createElement('div');
             playerEl.id = peerId;
-            playerEl.className = 'player';
-            playerEl.innerHTML = `
-                <div class="player-head"></div>
-                <div class="player-body"></div>
-                <div class="player-name">${username}</div>
-            `;
-            gameContainer.appendChild(playerEl);
-            players.set(peerId, { element: playerEl, username: username, position: position });
-            updatePlayerElementPosition(peerId);
+            playerEl.className = 'game-object player-object';
+            playerEl.innerHTML = `<div class="player-name">${username}</div>`;
+            worldContainer.appendChild(playerEl);
+            
+            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false });
         }
 
         function removePlayer(peerId) {
-            const playerData = players.get(peerId);
-            if (playerData) {
-                playerData.element.remove();
+            const player = players.get(peerId);
+            if (player) {
+                World.remove(world, player.body);
+                player.element.remove();
                 players.delete(peerId);
             }
         }
 
-        function updatePlayer(peerId, data) {
-            let playerData = players.get(peerId);
-            if (!playerData) {
-                console.log("Received update for unknown player, creating them:", data);
-                createPlayer(peerId, data.username, data.position);
-            } else {
-                if (data.position) playerData.position = data.position;
-                if (data.username) playerData.username = data.username;
-                updatePlayerElementPosition(peerId);
+        function updatePlayer(data) {
+            let player = players.get(data.peerId);
+            if (!player) {
+                createPlayer(data.peerId, data.username, data.position);
+                player = players.get(data.peerId);
+            }
+            
+            if (player && player.body) {
+                Body.setPosition(player.body, data.position);
+                Body.setVelocity(player.body, data.velocity || {x:0, y:0});
+                if (player.isTransformed !== data.isTransformed) {
+                    togglePlayerTransformation(player, data.isTransformed);
+                }
             }
         }
         
-        function updatePlayerElementPosition(peerId) {
-            const playerData = players.get(peerId);
-            if (playerData) {
-                playerData.element.style.left = playerData.position.x + 'px';
-                playerData.element.style.top = playerData.position.y + 'px';
+        function updatePlayerElements() {
+            for (const player of players.values()) {
+                const { position, angle } = player.body;
+                player.element.style.width = `${player.body.bounds.max.x - player.body.bounds.min.x}px`;
+                player.element.style.height = `${player.body.bounds.max.y - player.body.bounds.min.y}px`;
+                player.element.style.transform = `translate(${position.x - player.body.bounds.min.x + player.body.position.x}px, ${position.y - player.body.bounds.min.y + player.body.position.y}px) translate(-50%, -50%) rotate(${angle}rad)`;
+                player.element.style.left = `${position.x}px`;
+                player.element.style.top = `${position.y}px`;
+            }
+        }
+        
+        function togglePlayerTransformation(player, forceState) {
+            const isMyPlayer = player === players.get(myPeerId);
+            const shouldBeTransformed = forceState !== undefined ? forceState : !player.isTransformed;
+
+            if (player.isTransformed === shouldBeTransformed) return;
+            
+            const oldBody = player.body;
+            let newBody;
+            
+            if (shouldBeTransformed) { // Transform to ball
+                newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
+                    frictionAir: 0.005,
+                    friction: 0.01,
+                    restitution: 0.5
+                });
+                player.element.style.borderRadius = '50%';
+            } else { // Transform back to rectangle
+                newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
+                    inertia: Infinity,
+                    frictionAir: 0.02,
+                    friction: 0.1
+                });
+                player.element.style.borderRadius = '4px';
+            }
+            
+            Body.setVelocity(newBody, oldBody.velocity);
+            World.remove(world, oldBody);
+            World.add(world, newBody);
+            player.body = newBody;
+            player.isTransformed = shouldBeTransformed;
+            
+            if (isMyPlayer) {
+                isTransformed = shouldBeTransformed;
             }
         }
 
-        // --- User Input ---
-        const moveSpeed = 10;
-        function handleKeyPress(e) {
-            const myPlayerData = players.get(myPeerId);
-            if (!myPlayerData) return;
-            let moved = false;
-            switch(e.key) {
-                case 'ArrowUp': case 'w': myPlayerData.position.y -= moveSpeed; moved = true; break;
-                case 'ArrowDown': case 's': myPlayerData.position.y += moveSpeed; moved = true; break;
-                case 'ArrowLeft': case 'a': myPlayerData.position.x -= moveSpeed; moved = true; break;
-                case 'ArrowRight': case 'd': myPlayerData.position.x += moveSpeed; moved = true; break;
+        // --- Camera & Input ---
+        function updateCamera() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+            const { x, y } = myPlayer.body.position;
+            const viewportWidth = gameViewport.clientWidth;
+            const viewportHeight = gameViewport.clientHeight;
+            
+            const targetX = -x + viewportWidth / 2;
+            const targetY = -y + viewportHeight / 2;
+
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
+        }
+
+        const keys = {};
+        function handleKeyDown(e) { keys[e.code] = true; handlePlayerInput(e); }
+        function handleKeyUp(e) { keys[e.code] = false; }
+
+        function handlePlayerInput(e) {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+            const body = myPlayer.body;
+
+            // Movement
+            const moveForce = isTransformed ? 0.002 : 0.005;
+            if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
+            if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
+
+            // Jump
+            if (e.code === 'Space' && e.type === 'keydown') {
+                // A simple check to prevent air-jumping
+                if (!isTransformed && Math.abs(body.velocity.y) < 0.1) {
+                     Body.applyForce(body, body.position, { x: 0, y: -0.2 });
+                }
             }
-            if (moved) {
-                const bounds = gameContainer.getBoundingClientRect();
-                const playerEl = myPlayerData.element;
-                myPlayerData.position.x = Math.max(0, Math.min(bounds.width - playerEl.offsetWidth, myPlayerData.position.x));
-                myPlayerData.position.y = Math.max(0, Math.min(bounds.height - playerEl.offsetHeight, myPlayerData.position.y));
-                updatePlayerElementPosition(myPeerId);
-                broadcast({ type: 'player-update', peerId: myPeerId, position: myPlayerData.position });
+            
+            // Transform
+            if (e.code === 'KeyB' && e.type === 'keydown') {
+                togglePlayerTransformation(myPlayer);
             }
         }
         
         // --- UI & Utility Functions ---
-        function showMessage(message) {
-            document.getElementById('message-text').textContent = message;
-            document.getElementById('message-box').classList.remove('message-box-hidden');
+        function showLoadingScreen(isCreating) {
+            loginView.classList.add('hidden');
+            joinView.classList.add('hidden');
+            loadingView.classList.remove('hidden');
+            document.getElementById('loading-title').textContent = isCreating ? 'Creating Lobby...' : 'Joining Lobby...';
+            document.getElementById('loading-code-display').textContent = lobbyCode;
         }
-        document.getElementById('message-box-ok').addEventListener('click', () => {
-            document.getElementById('message-box').classList.add('message-box-hidden');
-        });
-        
+        function showJoinView() {
+            loginView.classList.add('hidden');
+            joinView.classList.remove('hidden');
+            document.getElementById('username-join').value = document.getElementById('username').value;
+        }
+        function showMainView() {
+            loginView.classList.remove('hidden');
+            joinView.classList.add('hidden');
+        }
+        function updateLobbyControls() {
+            if (isHost) {
+                deleteLobbyBtn.classList.toggle('hidden', connections.size > 0);
+                leaveLobbyBtn.classList.toggle('hidden', connections.size === 0);
+            }
+        }
+        function handleError(err) {
+            console.error('PeerJS error:', err);
+            alert(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
+            leaveLobby(); // Reset everything on error
+        }
         function generateLobbyCode() {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
         }
     </script>
 </body>
 </html>
+
