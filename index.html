@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cube World Online</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            background-color: #222;
+            color: #eee;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            image-rendering: pixelated;
+        }
+
+        #game-container {
+            border: 4px solid #888;
+            background-color: #c2c2c2;
+            width: 80vw;
+            height: 60vh;
+            max-width: 640px;
+            max-height: 480px;
+            position: relative;
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        .player {
+            width: 10px;
+            height: 20px;
+            position: absolute;
+            background-color: #333;
+            transition: left 0.1s linear, top 0.1s linear;
+        }
+        
+        .player-head {
+            width: 10px;
+            height: 10px;
+            background-color: #333;
+            border-radius: 50%;
+            position: absolute;
+            top: -5px;
+        }
+
+        .player-body {
+            width: 2px;
+            height: 10px;
+            background-color: #333;
+            position: absolute;
+            top: 5px;
+            left: 4px;
+        }
+
+
+        #login-screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(0,0,0,0.7);
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        #login-screen h1 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-shadow: 2px 2px #000;
+        }
+
+        #username {
+            padding: 10px;
+            font-family: 'Press Start 2P', cursive;
+            border: 2px solid #888;
+            background-color: #eee;
+            text-align: center;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        #join-btn {
+            padding: 10px 20px;
+            font-family: 'Press Start 2P', cursive;
+            border: 2px solid #888;
+            background-color: #5cb85c;
+            color: white;
+            cursor: pointer;
+            border-radius: 4px;
+            text-shadow: 1px 1px #000;
+        }
+        
+        #join-btn:hover {
+            background-color: #4cae4c;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 12px;
+            text-align: center;
+        }
+        
+        .player-name {
+            position: absolute;
+            bottom: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 8px;
+            color: #333;
+            white-space: nowrap;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="login-screen">
+            <h1>Cube World Online</h1>
+            <input type="text" id="username" placeholder="Enter Username">
+            <button id="join-btn">Join World</button>
+        </div>
+    </div>
+
+    <div id="status">Your Peer ID: <span id="peer-id"></span></div>
+
+    <script>
+        // --- PeerJS Setup ---
+        // This part initializes PeerJS, which handles the WebRTC connections.
+        // WebRTC allows browsers to send data directly to each other without a central server.
+        let peer;
+        let myPeerId;
+        const connections = new Map(); // Stores connections to other peers
+        const players = new Map(); // Stores player data (position, username)
+
+        function initializePeer(username) {
+            // Create a new Peer object. The username is used as part of the peer ID
+            // for easier identification, but PeerJS will generate a unique ID.
+            peer = new Peer({
+                // For local testing, you might need to run a local PeerJS server.
+                // For GitHub Pages, this will use the public PeerJS server.
+                // host: 'localhost', 
+                // port: 9000,
+                // path: '/myapp'
+            });
+
+            // Event listener for when the peer connection to the server is open.
+            peer.on('open', id => {
+                myPeerId = id;
+                console.log('My peer ID is: ' + id);
+                document.getElementById('peer-id').textContent = id;
+                
+                // Now that we have an ID, we can create our own player
+                createPlayer(myPeerId, username, { x: 50, y: 50 });
+
+                // Hide the login screen
+                document.getElementById('login-screen').style.display = 'none';
+                
+                // Start listening for keyboard input for movement
+                document.addEventListener('keydown', handleKeyPress);
+            });
+
+            // Event listener for when another peer tries to connect to us.
+            peer.on('connection', conn => {
+                console.log('Incoming connection from', conn.peer);
+                setupConnection(conn);
+            });
+
+            // Event listener for errors
+            peer.on('error', err => {
+                console.error('PeerJS error:', err);
+                alert('Connection error. Please refresh and try again.');
+            });
+        }
+
+        // --- Connection Management ---
+        
+        function setupConnection(conn) {
+            conn.on('open', () => {
+                console.log('Connection established with', conn.peer);
+                connections.set(conn.peer, conn);
+
+                // When a connection is made, send our current player data
+                const myPlayerData = players.get(myPeerId);
+                conn.send({
+                    type: 'player-join',
+                    peerId: myPeerId,
+                    username: myPlayerData.username,
+                    position: myPlayerData.position
+                });
+            });
+
+            // Handle receiving data from the other peer
+            conn.on('data', data => {
+                handleData(data, conn.peer);
+            });
+
+            // Handle the connection closing
+            conn.on('close', () => {
+                console.log('Connection closed with', conn.peer);
+                removePlayer(conn.peer);
+                connections.delete(conn.peer);
+            });
+        }
+        
+        // This function is not used in this simple version, but would be needed
+        // for a more robust system where you manually connect to peers.
+        // Here, we rely on peers discovering each other on the same network.
+        function connectToPeer(peerId) {
+            if (!connections.has(peerId) && peerId !== myPeerId) {
+                console.log('Connecting to', peerId);
+                const conn = peer.connect(peerId);
+                setupConnection(conn);
+            }
+        }
+
+        // --- Data Handling ---
+        
+        // This function processes all incoming data from other peers.
+        function handleData(data, peerId) {
+            switch(data.type) {
+                case 'player-join':
+                    // A new player has joined, create them in our world
+                    console.log('Player joined:', data);
+                    createPlayer(data.peerId, data.username, data.position);
+                    
+                    // Respond with our own player data so they can see us
+                    const myPlayerData = players.get(myPeerId);
+                    const conn = connections.get(peerId);
+                    if (conn) {
+                        conn.send({
+                           type: 'player-update',
+                           peerId: myPeerId,
+                           username: myPlayerData.username,
+                           position: myPlayerData.position
+                        });
+                    }
+                    break;
+                case 'player-update':
+                    // An existing player has moved or updated
+                    updatePlayer(data.peerId, data);
+                    break;
+                case 'player-leave':
+                    // A player has left
+                    removePlayer(data.peerId);
+                    break;
+            }
+        }
+
+        // Function to send data to all connected peers
+        function broadcast(data) {
+            for (const conn of connections.values()) {
+                conn.send(data);
+            }
+        }
+
+
+        // --- Game Logic ---
+        const gameContainer = document.getElementById('game-container');
+
+        function createPlayer(peerId, username, position) {
+            if (document.getElementById(peerId)) return; // Player already exists
+
+            const playerEl = document.createElement('div');
+            playerEl.id = peerId;
+            playerEl.className = 'player';
+            
+            const headEl = document.createElement('div');
+            headEl.className = 'player-head';
+
+            const bodyEl = document.createElement('div');
+            bodyEl.className = 'player-body';
+
+            const nameEl = document.createElement('div');
+            nameEl.className = 'player-name';
+            nameEl.textContent = username;
+
+            playerEl.appendChild(headEl);
+            playerEl.appendChild(bodyEl);
+            playerEl.appendChild(nameEl);
+            
+            gameContainer.appendChild(playerEl);
+            
+            players.set(peerId, { element: playerEl, username: username, position: position });
+            updatePlayerElementPosition(peerId);
+        }
+
+        function removePlayer(peerId) {
+            const playerData = players.get(peerId);
+            if (playerData) {
+                playerData.element.remove();
+                players.delete(peerId);
+            }
+        }
+
+        function updatePlayer(peerId, data) {
+            const playerData = players.get(peerId);
+            if (playerData) {
+                if (data.position) playerData.position = data.position;
+                if (data.username) playerData.username = data.username;
+                updatePlayerElementPosition(peerId);
+            } else {
+                // If we get an update for a player we don't know, it's likely a join we missed.
+                createPlayer(peerId, data.username, data.position);
+            }
+        }
+        
+        function updatePlayerElementPosition(peerId) {
+            const playerData = players.get(peerId);
+            if (playerData) {
+                playerData.element.style.left = playerData.position.x + 'px';
+                playerData.element.style.top = playerData.position.y + 'px';
+            }
+        }
+
+        // --- User Input ---
+        const moveSpeed = 10;
+
+        function handleKeyPress(e) {
+            const myPlayerData = players.get(myPeerId);
+            if (!myPlayerData) return;
+
+            let moved = false;
+            switch(e.key) {
+                case 'ArrowUp':
+                case 'w':
+                    myPlayerData.position.y -= moveSpeed;
+                    moved = true;
+                    break;
+                case 'ArrowDown':
+                case 's':
+                    myPlayerData.position.y += moveSpeed;
+                    moved = true;
+                    break;
+                case 'ArrowLeft':
+                case 'a':
+                    myPlayerData.position.x -= moveSpeed;
+                    moved = true;
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                    myPlayerData.position.x += moveSpeed;
+                    moved = true;
+                    break;
+            }
+
+            if (moved) {
+                // Constrain player to game bounds
+                const bounds = gameContainer.getBoundingClientRect();
+                const playerEl = myPlayerData.element;
+                myPlayerData.position.x = Math.max(0, Math.min(bounds.width - playerEl.offsetWidth, myPlayerData.position.x));
+                myPlayerData.position.y = Math.max(0, Math.min(bounds.height - playerEl.offsetHeight, myPlayerData.position.y));
+
+                // Update our own player element's position
+                updatePlayerElementPosition(myPeerId);
+
+                // Broadcast the new position to other peers
+                broadcast({
+                    type: 'player-update',
+                    peerId: myPeerId,
+                    position: myPlayerData.position
+                });
+            }
+        }
+
+        // --- Initialization ---
+        document.getElementById('join-btn').addEventListener('click', () => {
+            const usernameInput = document.getElementById('username');
+            const username = usernameInput.value.trim();
+            if (username) {
+                initializePeer(username);
+            } else {
+                alert('Please enter a username.');
+            }
+        });
+        
+        // Automatically try to connect to any other peer on the network.
+        // This is a very basic discovery mechanism. In a real game, you'd
+        // have a more sophisticated lobby or room system.
+        // This won't work perfectly on its own, as peers need to know about each other.
+        // A simple "scan" like this is often not enough. True P2P discovery on a local
+        // network without a central server is complex. This example relies on the shared
+        // PeerJS server for initial signaling.
+        //
+        // A more robust approach would involve a "host" player that others connect to,
+        // or a shared "room" ID that all players join.
+    </script>
+</body>
+</html>
