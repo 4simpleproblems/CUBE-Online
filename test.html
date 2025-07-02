@@ -43,11 +43,10 @@
         
         #world-container {
             position: absolute;
-            /* UPDATED: Added transition for camera effects */
-            transition: transform 0.1s linear;
+            transition: transform 0.1s linear; /* Default camera follow speed */
         }
 
-        /* NEW: Class for smooth respawn camera animation */
+        /* Class for smooth respawn camera animation */
         #world-container.respawning {
             transition: transform 2.0s cubic-bezier(0.45, 0, 0.55, 1);
         }
@@ -62,11 +61,12 @@
         .player-object {
             background-color: transparent;
             border: none;
-            transition: border-radius 0.2s ease, opacity 0.2s ease, visibility 0s linear 0s;
+            transition: border-radius 0.2s ease, opacity 0.2s ease, visibility 0s;
             z-index: 10;
         }
         .player-object.dead {
              visibility: hidden;
+             transition: visibility 0s linear 0.1s; /* Hide after a tiny delay */
         }
 
 
@@ -438,7 +438,7 @@
         let showOtherPlayerParticles = true;
         let sprintParticleTimer = 0;
         const SPRINT_PARTICLE_INTERVAL = 100;
-        let isRespawningCamera = false; // NEW: Flag for camera control
+        let isRespawningCamera = false;
 
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
@@ -470,14 +470,12 @@
             isHost = isCreating;
             const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
             if (!username) { showMessage('Please enter a username.'); return; }
-
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
             } else {
                 lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
                 if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
-            
             showLoadingScreen(isCreating);
             initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
@@ -488,16 +486,12 @@
                 myPeerId = id;
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
-                
                 initPhysics();
                 createWorld();
-                
                 const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
                 createPlayer(myPeerId, username, startPos);
-                
                 setupInputControls();
                 startAnimationLoop();
-
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
@@ -551,7 +545,6 @@
             if (runner) Runner.stop(runner);
             if (engine) Engine.clear(engine);
             if (animationInterval) clearInterval(animationInterval);
-            
             players.clear();
             connections.clear();
             gameObjects.clear();
@@ -560,7 +553,6 @@
             worldContainer.innerHTML = '';
             offScreenIndicatorsContainer.innerHTML = '';
             isHost = false;
-            
             gameUi.classList.add('hidden');
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
@@ -591,20 +583,17 @@
             world = engine.world;
             runner = Runner.create();
             Runner.run(runner, engine);
-            
             let lastTime = performance.now();
             Events.on(engine, 'afterUpdate', (event) => {
                 const currentTime = performance.now();
                 const deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
-
                 processPlayerInput(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
                 updateAndCleanParticles();
-
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body && !myPlayer.isDead) {
                      broadcast({
@@ -617,7 +606,6 @@
                     });
                 }
             });
-
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
@@ -771,7 +759,7 @@
             const targetY = -y + viewportHeight / 2;
             camera.x = x;
             camera.y = y;
-            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(1)`;
         }
 
         function updateOffScreenIndicators() {
@@ -819,7 +807,6 @@
         function setupInputControls() {
             if ('ontouchstart' in window) {
                 mobileControls.classList.remove('hidden');
-                setupMobileControls();
             } else {
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
@@ -890,9 +877,10 @@
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
             if (e.code === 'R') {
-                if (!myPlayer.isDead) {
+                if (!myPlayer.isDead && !isRespawningCamera) {
                     initiateRespawn(myPlayer);
                 }
+                return; // Prevent other actions while respawning
             }
             if (myPlayer.isDead) return;
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
@@ -907,8 +895,6 @@
                 togglePlayerTransformation(myPlayer);
             }
         }
-
-        function setupMobileControls() { }
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
@@ -960,39 +946,32 @@
         }
 
         function initiateRespawn(player) {
-            if (player.isDead || isRespawningCamera) return;
             isRespawningCamera = true;
             const deathPos = { ...player.body.position };
             const spawnPos = { x: worldWidth / 2, y: worldHeight - 200 };
+            const viewportWidth = gameViewport.clientWidth;
+            const viewportHeight = gameViewport.clientHeight;
+            const zoomScale = 0.4;
             
             broadcast({ type: 'player-died', peerId: player.peerId, position: deathPos });
             handlePlayerDeath(player.peerId, deathPos);
 
-            const viewportWidth = gameViewport.clientWidth;
-            const viewportHeight = gameViewport.clientHeight;
+            // Set the long transition and pan to the spawn point while zoomed out
+            worldContainer.classList.add('respawning');
+            const targetX = -spawnPos.x * zoomScale + viewportWidth / 2;
+            const targetY = -spawnPos.y * zoomScale + viewportHeight / 2;
+            worldContainer.style.transform = `scale(${zoomScale}) translate(${targetX}px, ${targetY}px)`;
             
-            // Zoom out on death position
-            const prePanTranslateX = -deathPos.x * 0.4 + viewportWidth / 2;
-            const prePanTranslateY = -deathPos.y * 0.4 + viewportHeight / 2;
-            worldContainer.style.transform = `scale(0.4) translate(${prePanTranslateX}px, ${prePanTranslateY}px)`;
-
-            setTimeout(() => {
-                // Pan to spawn position
-                worldContainer.classList.add('respawning');
-                const postPanTranslateX = -spawnPos.x * 0.4 + viewportWidth / 2;
-                const postPanTranslateY = -spawnPos.y * 0.4 + viewportHeight / 2;
-                worldContainer.style.transform = `scale(0.4) translate(${postPanTranslateX}px, ${postPanTranslateY}px)`;
-            }, 50);
-
+            // After the pan/zoom-out is complete, respawn the player and zoom back in
             setTimeout(() => {
                 broadcast({ type: 'player-respawned', peerId: player.peerId, position: spawnPos });
                 handlePlayerRespawn(player.peerId, spawnPos);
                 
-                // Zoom in on spawn position
-                const finalTranslateX = -spawnPos.x + viewportWidth / 2;
-                const finalTranslateY = -spawnPos.y + viewportHeight / 2;
-                worldContainer.style.transform = `scale(1) translate(${finalTranslateX}px, ${finalTranslateY}px)`;
+                const finalX = -spawnPos.x + viewportWidth / 2;
+                const finalY = -spawnPos.y + viewportHeight / 2;
+                worldContainer.style.transform = `scale(1) translate(${finalX}px, ${finalY}px)`;
 
+                // After the zoom-in animation finishes, reset camera state
                 setTimeout(() => {
                     worldContainer.classList.remove('respawning');
                     isRespawningCamera = false;
@@ -1005,6 +984,7 @@
             if (!player) return;
             player.isDead = true;
             player.element.classList.add('dead');
+            Body.setStatic(player.body, true); // Immobilize the physics body
             createDeathParticles(position, 25);
         }
 
@@ -1013,6 +993,7 @@
             if (!player) return;
             player.isDead = false;
             player.element.classList.remove('dead');
+            Body.setStatic(player.body, false); // Make body dynamic again
             Body.setPosition(player.body, position);
             Body.setVelocity(player.body, { x: 0, y: 0 });
             player.currentStamina = player.maxStamina;
@@ -1023,17 +1004,15 @@
                 const particleEl = document.createElement('div');
                 particleEl.className = 'death-particle';
                 worldContainer.appendChild(particleEl);
-
                 const particleBody = Bodies.rectangle(position.x, position.y, 8, 8, {
-                    frictionAir: 0.01,
-                    restitution: 0.4
+                    frictionAir: 0.01, restitution: 0.4
                 });
                 Body.setVelocity(particleBody, {
-                    x: (Math.random() - 0.5) * 15,
-                    y: (Math.random() - 0.5) * 15 - 5
+                    x: (Math.random() - 0.5) * 20,
+                    y: (Math.random() - 0.5) * 20 - 5
                 });
                 World.add(world, particleBody);
-                deathParticles.push({ element: particleEl, body: particleBody, id: Math.random() });
+                deathParticles.push({ element: particleEl, body: particleBody });
             }
         }
         
@@ -1045,8 +1024,7 @@
                 const particle = deathParticles[i];
                 particle.element.style.left = `${particle.body.position.x}px`;
                 particle.element.style.top = `${particle.body.position.y}px`;
-
-                if (particle.body.position.y > viewBottom + 200) {
+                if (particle.body.position.y > viewBottom + 300) { // Check if far below the camera view
                     World.remove(world, particle.body);
                     particle.element.remove();
                     deathParticles.splice(i, 1);
