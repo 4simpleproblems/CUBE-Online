@@ -21,6 +21,7 @@
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
             --off-screen-indicator-color: #007bff;
+            --stamina-bar-color: #28a745; /* Green for stamina */
         }
 
         body {
@@ -188,11 +189,35 @@
             left: 15px;
             z-index: 25;
             display: flex;
+            flex-direction: column; /* Changed to column for stamina bar */
             gap: 10px;
         }
 
-        #game-ui .btn {
+        #game-ui-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        #game-ui-buttons .btn {
             width: auto;
+        }
+
+        #stamina-bar-container {
+            width: 200px;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            border: 2px solid var(--border-color);
+            overflow: hidden;
+            margin-top: 5px;
+        }
+
+        #stamina-bar {
+            width: 100%;
+            height: 100%;
+            background-color: var(--stamina-bar-color);
+            border-radius: 8px;
+            transition: width 0.1s linear;
         }
         
         #status {
@@ -332,8 +357,13 @@
         <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
-            <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
-            <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+            <div id="stamina-bar-container">
+                <div id="stamina-bar"></div>
+            </div>
+            <div id="game-ui-buttons">
+                <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
+                <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+            </div>
         </div>
 
         <div id="mobile-controls" class="hidden">
@@ -390,16 +420,18 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 50000; // Much wider world
-        const worldHeight = 10000; // Taller world to feel infinite
+        const worldWidth = 50000;
+        const worldHeight = 10000;
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
+        let sprintParticleTimer = 0;
+        const SPRINT_PARTICLE_INTERVAL = 100; // ms
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
-        const LOBBY_PREFIX = 'CUBE-EVOLVED-'; // Can be changed
+        const LOBBY_PREFIX = 'CUBE-EVOLVED-';
 
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
@@ -414,6 +446,7 @@
         const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
         const hostInfoDiv = document.getElementById('host-info');
         const mobileControls = document.getElementById('mobile-controls');
+        const staminaBar = document.getElementById('stamina-bar');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -535,7 +568,7 @@
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
-                case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
+                case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -555,11 +588,17 @@
             runner = Runner.create();
             Runner.run(runner, engine);
             
-            Events.on(engine, 'afterUpdate', () => {
-                processPlayerInput();
+            let lastTime = performance.now();
+            Events.on(engine, 'afterUpdate', (event) => {
+                const currentTime = performance.now();
+                const deltaTime = currentTime - lastTime;
+                lastTime = currentTime;
+
+                processPlayerInput(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
+                updateStamina(deltaTime);
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
@@ -591,8 +630,7 @@
         }
 
         function createWorld() {
-            // A single, seemingly infinite white floor
-            const floorHeight = 2000; // Very thick floor
+            const floorHeight = 2000;
             createStaticObject(worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight, `ground`);
         }
 
@@ -644,7 +682,9 @@
             
             players.set(peerId, { 
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
-                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false
+                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
+                isSprinting: false, maxStamina: 100, currentStamina: 100, 
+                staminaDrainRate: 25, staminaRegenRate: 15
             });
         }
 
@@ -789,6 +829,23 @@
             }
         }
 
+        function updateStamina(deltaTime) {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+
+            // Regenerate stamina only if not trying to sprint (key is up) and not currently sprinting
+            if (!myPlayer.isSprinting && !isTryingToSprint) {
+                myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
+            }
+
+            // Update the UI
+            const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
+            staminaBar.style.width = `${staminaPercentage}%`;
+        }
+
+
         const keys = {};
         function setupInputControls() {
             if ('ontouchstart' in window) {
@@ -803,11 +860,15 @@
         function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
         function handleKeyUp(e) { keys[e.code] = false; }
         
-        function processPlayerInput() {
+        function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
 
             const body = myPlayer.body;
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
+            const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
+
+            myPlayer.isSprinting = false; // Reset every frame
 
             if (myPlayer.isTransformed) {
                  const moveForce = 0.001;
@@ -816,7 +877,22 @@
                 if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
                 if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
             } else {
-                const moveSpeed = 5;
+                let moveSpeed = 5;
+
+                if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
+                    moveSpeed = 9; // Faster speed
+                    myPlayer.isSprinting = true;
+                    myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
+                    
+                    sprintParticleTimer += deltaTime;
+                    if (sprintParticleTimer >= SPRINT_PARTICLE_INTERVAL) {
+                        broadcast({type: 'glide-particle', position: myPlayer.body.position, direction: myPlayer.direction});
+                        createWindParticle(myPlayer.body.position, myPlayer.direction, true);
+                        sprintParticleTimer = 0;
+                    }
+
+                }
+
                 if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                     myPlayer.direction = 'left';
@@ -836,7 +912,8 @@
 
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     Body.applyForce(body, body.position, { x: 0, y: -0.25 });
+                     // Reduced jump force
+                     Body.applyForce(body, body.position, { x: 0, y: -0.15 });
                      myPlayer.onGround = false;
                 }
             }
@@ -850,7 +927,7 @@
              // Mobile controls logic can be expanded here
         }
 
-        function createGlideParticle(position, direction, isMyPlayer) {
+        function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
 
             const particleEl = document.createElement('div');
@@ -867,47 +944,55 @@
         function startAnimationLoop() {
             let idleFrame = 0;
             let walkFrame = 0;
-            let idleTimer = 0;
-            let walkTimer = 0;
+            let animTimer = 0;
             const loopTime = 50; // Run loop every 50ms
 
             const IDLE_FPS = 2;
-            const WALK_FPS = 4;
-            const IDLE_FRAME_DURATION = 1000 / IDLE_FPS; // 500ms
-            const WALK_FRAME_DURATION = 1000 / WALK_FPS; // 250ms
+            const WALK_FPS = 8;
+            const SPRINT_FPS = 14; // Faster animation for sprinting
 
             animationInterval = setInterval(() => {
-                idleTimer += loopTime;
-                walkTimer += loopTime;
-
-                if (idleTimer >= IDLE_FRAME_DURATION) { 
-                    idleFrame = (idleFrame + 1) % 2; 
-                    idleTimer = 0; 
-                }
-                if (walkTimer >= WALK_FRAME_DURATION) { 
-                    walkFrame = (walkFrame + 1) % 4; 
-                    walkTimer = 0; 
-                }
+                animTimer += loopTime;
 
                 for (const player of players.values()) {
                     if (!player.body || player.isTransformed) continue;
                     
                     const speed = Vector.magnitude(player.body.velocity);
-                    player.isWalking = player.onGround && speed > 0.5;
+                    // UPDATED: Walking animation is now based on speed, not being on the ground
+                    player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
 
                     const sprite = player.element.querySelector('.player-sprite');
                     if (!sprite) continue;
 
-                    if (player.isWalking) {
+                    let currentFps = IDLE_FPS;
+                    if (player.isSprinting) {
+                        currentFps = SPRINT_FPS;
+                    } else if (player.isWalking) {
+                        currentFps = WALK_FPS;
+                    }
+
+                    const frameDuration = 1000 / currentFps;
+                    
+                    if (animTimer >= frameDuration) {
+                        if(player.isWalking || player.isSprinting) {
+                            walkFrame = (walkFrame + 1) % 4;
+                        } else {
+                            idleFrame = (idleFrame + 1) % 2;
+                        }
+                        animTimer = 0; // Reset timer only when frame changes
+                    }
+
+                    if (player.isSprinting || player.isWalking) {
                         sprite.src = `../images/player-walk${walkFrame + 1}.png`;
-                    } else {
+                    } else { // isIdle
                         sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
+                    // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
-                        createGlideParticle(player.body.position, player.direction, true);
+                        createWindParticle(player.body.position, player.direction, true);
                     }
                 }
             }, loopTime);
