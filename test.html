@@ -627,7 +627,7 @@
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
-                <img src="../images/player-idle1.PNG" class="player-sprite" alt="Player">
+                <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
                 <div class="player-name">${username}</div>
             `;
             worldContainer.appendChild(playerEl);
@@ -900,9 +900,9 @@
                     if (!sprite) continue;
 
                     if (player.isWalking) {
-                        sprite.src = `../images/player-walk${walkFrame + 1}.PNG`;
+                        sprite.src = `../images/player-walk${walkFrame + 1}.png`;
                     } else {
-                        sprite.src = `../images/player-idle${idleFrame + 1}.PNG`;
+                        sprite.src = `../images/player-idle${idleFrame + 1}.png`;
                     }
                     
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
