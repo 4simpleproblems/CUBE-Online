@@ -10,18 +10,18 @@
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
 
         :root {
-            --background-color: #f0f0f0; /* Light grey background */
-            --primary-text-color: #1a1a1a; /* Dark text */
-            --border-color: #cccccc; /* Lighter border */
-            --surface-color: #ffffff; /* White surfaces */
-            --accent-color: #007bff; /* A nice blue */
+            --background-color: #f0f0f0;
+            --primary-text-color: #1a1a1a;
+            --border-color: #cccccc;
+            --surface-color: #ffffff;
+            --accent-color: #007bff;
             --accent-hover-color: #0056b3;
             --secondary-color: #6c757d;
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
             --off-screen-indicator-color: #007bff;
-            --stamina-bar-color: #28a745; /* Green for stamina */
+            --stamina-bar-color: #28a745;
         }
 
         body {
@@ -33,12 +33,16 @@
         }
 
         #game-viewport {
-            background-color: var(--background-color); /* Grey background for the game world */
+            background-color: var(--background-color);
             width: 100vw;
             height: 100vh;
             position: relative;
             overflow: hidden;
             cursor: default;
+        }
+
+        #game-viewport.screenshake {
+             animation: screen-shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
         }
         
         #world-container {
@@ -48,15 +52,15 @@
 
         .game-object {
             position: absolute;
-            background-color: var(--surface-color); /* White floor */
+            background-color: var(--surface-color);
             border: 1px solid var(--border-color);
             transform-origin: center center;
         }
         
         .player-object {
-            background-color: transparent; /* Player container is invisible */
-            border: none; /* No border for the player container itself */
-            transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s; /* Added delay for fade in */
+            background-color: transparent;
+            border: none;
+            transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s;
             z-index: 10;
             transform-style: preserve-3d;
         }
@@ -74,12 +78,10 @@
 
         .respawn-particle {
             position: absolute;
-            width: 12px;
-            height: 12px;
             background-color: black;
             pointer-events: none;
             z-index: 20;
-            animation: spurt 0.7s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
+            animation: spurt 0.8s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
         }
 
         .spawn-in-particle {
@@ -90,36 +92,34 @@
             pointer-events: none;
             z-index: 20;
             animation: converge forwards;
-            animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.2); /* Ease-in curve */
+            animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.2);
         }
         
         @keyframes spurt {
             0% {
-                transform: scale(1);
+                transform: scale(var(--start-scale, 1)) rotate(0deg);
                 opacity: 1;
             }
             100% {
-                transform: scale(0) translate(var(--translateX), var(--translateY));
+                transform: scale(0) translate(var(--translateX), var(--translateY)) rotate(720deg);
                 opacity: 0;
             }
+        }
+        
+        @keyframes screen-shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
         }
 
         @keyframes converge {
-            from {
-                transform: translate(var(--translateX), var(--translateY)) scale(1.5);
-                opacity: 1;
-            }
-            to {
-                transform: translate(0, 0) scale(0);
-                opacity: 0.5;
-            }
+            from { transform: translate(var(--translateX), var(--translateY)) scale(1.5); opacity: 1; }
+            to { transform: translate(0, 0) scale(0); opacity: 0.5; }
         }
 
         @keyframes fadeOut {
-            to {
-                opacity: 0;
-                transform: scale(0.2);
-            }
+            to { opacity: 0; transform: scale(0.2); }
         }
 
         .player-sprite-wrapper {
@@ -139,13 +139,8 @@
             backface-visibility: hidden;
         }
 
-        .player-sprite.front {
-            transform: rotateY(0deg);
-        }
-        
-        .player-sprite.back {
-            transform: rotateY(180deg) scaleX(-1);
-        }
+        .player-sprite.front { transform: rotateY(0deg); }
+        .player-sprite.back { transform: rotateY(180deg) scaleX(-1); }
         
         .player-name {
             position: absolute;
@@ -173,9 +168,7 @@
             z-index: 20;
             transition: opacity 0.5s ease-in-out;
         }
-        #fade-overlay.active {
-            opacity: 1;
-        }
+        #fade-overlay.active { opacity: 1; }
 
         .ui-view {
             display: flex;
@@ -245,18 +238,12 @@
             left: 15px;
             z-index: 25;
             display: flex;
-            flex-direction: column; /* Changed to column for stamina bar */
+            flex-direction: column;
             gap: 10px;
         }
 
-        #game-ui-buttons {
-            display: flex;
-            gap: 10px;
-        }
-
-        #game-ui-buttons .btn {
-            width: auto;
-        }
+        #game-ui-buttons { display: flex; gap: 10px; }
+        #game-ui-buttons .btn { width: auto; }
 
         #stamina-bar-container {
             width: 200px;
@@ -352,6 +339,16 @@
             left: 50%;
             transform: translate(-50%, -50%);
             transition: transform 0.1s, background-color 0.2s;
+            border: 2px solid rgba(0,0,0,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #joystick-label {
+            font-weight: bold;
+            font-size: 0.8rem;
+            color: white;
+            text-align: center;
         }
         #joystick-nub.active {
             background-color: var(--stamina-bar-color);
@@ -407,7 +404,7 @@
         }
         .off-screen-name {
             position: absolute;
-            top: 25px; /* Position below the arrow */
+            top: 25px;
             font-size: 12px;
             font-weight: bold;
             color: white;
@@ -417,6 +414,15 @@
             white-space: nowrap;
             transform: translateX(-50%);
             left: 50%;
+        }
+        
+        /* Mobile Horizontal Orientation */
+        @media (max-height: 500px) and (orientation: landscape) {
+            #game-ui {
+                left: auto;
+                right: 15px;
+                align-items: flex-end;
+            }
         }
     </style>
 </head>
@@ -439,7 +445,9 @@
 
         <div id="mobile-controls" class="hidden">
             <div id="joystick-zone" class="mobile-control-zone">
-                <div id="joystick-nub"></div>
+                <div id="joystick-nub">
+                    <div id="joystick-label">SPRINT</div>
+                </div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
                 <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
@@ -485,10 +493,7 @@
     </div>
 
     <script>
-        // --- Matter.js Aliases ---
-        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector, Composite, Detector } = Matter;
-
-        // --- Game & Physics State ---
+        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
@@ -498,15 +503,13 @@
         let animationInterval;
         let showOtherPlayerParticles = true;
         let sprintParticleTimer = 0;
-        const SPRINT_PARTICLE_INTERVAL = 100; // ms
+        const SPRINT_PARTICLE_INTERVAL = 100;
 
-        // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
         const SESSION_KEY = 'humanSimulatorSession';
 
-        // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
         const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
@@ -521,7 +524,6 @@
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
 
-        // --- UI Input Elements ---
         const usernameInput = document.getElementById('username');
         const usernameJoinInput = document.getElementById('username-join');
         const lobbyCodeInput = document.getElementById('lobby-code-input');
@@ -530,7 +532,6 @@
         const joinLobbyBtn = document.getElementById('join-lobby-btn');
         const backToMainBtn = document.getElementById('back-to-main-btn');
 
-        // --- Event Listeners ---
         createLobbyBtn.addEventListener('click', () => handleLobbyAction(true));
         joinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
         showJoinViewBtn.addEventListener('click', showJoinView);
@@ -538,10 +539,7 @@
         document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
-
-        // --- Initial Load ---
         window.addEventListener('load', checkForSession);
-
 
         function checkForSession() {
             const sessionDataString = sessionStorage.getItem(SESSION_KEY);
@@ -549,22 +547,18 @@
                 const sessionData = JSON.parse(sessionDataString);
                 isHost = sessionData.isHost;
                 lobbyCode = sessionData.lobbyCode;
-                
                 usernameInput.value = sessionData.username;
                 usernameJoinInput.value = sessionData.username;
                 lobbyCodeInput.value = sessionData.lobbyCode;
-
                 lockLoginInputs();
-                
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
                 initializePeer(sessionData.username, isHost ? LOBBY_PREFIX + lobbyCode : null);
                 return;
             }
-
             const params = new URLSearchParams(window.location.search);
             const urlLobbyCode = params.get('lobby');
-            if(urlLobbyCode) {
+            if (urlLobbyCode) {
                 lobbyCodeInput.value = urlLobbyCode;
                 showJoinView();
             }
@@ -605,44 +599,40 @@
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
             const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
-            if (!username) { showMessage('Please enter a username.'); return; }
-
+            if (!username) {
+                showMessage('Please enter a username.');
+                return;
+            }
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
             } else {
                 lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
-                if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
+                if (!lobbyCode || lobbyCode.length !== 8) {
+                    showMessage('Please enter a valid 8-digit lobby code.');
+                    return;
+                }
             }
-            
             lockLoginInputs();
             const sessionData = { username, lobbyCode, isHost };
             sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
             updateUrlWithLobbyCode(lobbyCode);
-
             showLoadingScreen(isCreating);
             initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
-        // --- PeerJS Initialization & Lobby Logic ---
         function initializePeer(username, requestedId) {
             if (peer) peer.destroy();
             peer = new Peer(requestedId, {});
             peer.on('open', id => {
                 myPeerId = id;
-                console.log('PeerJS connection open. My ID:', myPeerId);
-                
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
-                
                 initPhysics();
                 createWorld();
-                
                 const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
                 createPlayer(myPeerId, username, startPos);
-                
                 setupInputControls();
                 startAnimationLoop();
-
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
@@ -660,14 +650,10 @@
                 connections.set(conn.peer, conn);
                 if (isHost) {
                     updateLobbyControls();
-                }
-
-                if (isHost) {
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
                     conn.send({ type: 'lobby-roster', peers: allPeerIds });
                     broadcast({ type: 'new-peer-announcement', peerId: conn.peer }, conn.peer);
                 }
-                
                 const myPlayer = players.get(myPeerId);
                 conn.send({
                     type: 'player-update',
@@ -681,7 +667,7 @@
             conn.on('data', handleData);
             conn.on('close', () => handleDisconnect(conn.peer));
         }
-        
+
         function handleDisconnect(peerId) {
             connections.delete(peerId);
             removePlayer(peerId);
@@ -694,38 +680,35 @@
                 setupConnection(peer.connect(peerId));
             }
         }
-        
+
         function leaveLobby() {
             if (peer) peer.destroy();
             if (runner) Runner.stop(runner);
             if (engine) Engine.clear(engine);
             if (animationInterval) clearInterval(animationInterval);
-            
             players.clear();
             connections.clear();
             gameObjects.clear();
             worldContainer.innerHTML = '';
             offScreenIndicatorsContainer.innerHTML = '';
             isHost = false;
-            
             gameUi.classList.add('hidden');
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
-            
             sessionStorage.removeItem(SESSION_KEY);
             clearUrlParams();
             unlockLoginInputs();
             showMainView();
         }
 
-        // --- Data Handling ---
         function handleData(data, peerId) {
-            switch(data.type) {
+            switch (data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
                 case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
+                case 'respawn-explosion': createRespawnParticles(data.position); break;
             }
         }
 
@@ -735,27 +718,23 @@
             }
         }
 
-        // --- Physics & Game World ---
-        let camera = { x: 0, y: 0, scale: 1, targetScale: 1};
+        let camera = { x: 0, y: 0, scale: 1, targetScale: 1 };
         function initPhysics() {
             engine = Engine.create({ gravity: { y: 1 } });
             world = engine.world;
             runner = Runner.create();
             Runner.run(runner, engine);
-            
             let lastTime = performance.now();
             Events.on(engine, 'afterUpdate', (event) => {
                 const currentTime = performance.now();
                 const deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
-
                 processPlayerInput(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
-                updatePlayerLayering(); 
-
+                updatePlayerLayering();
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                     broadcast({
@@ -768,16 +747,13 @@
                     });
                 }
             });
-
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
                     const playerBody = getPlayerBodyFromPair(pair);
                     if (!playerBody) continue;
-
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
-
                     if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
                         player.onGround = true;
                     }
@@ -787,35 +763,33 @@
 
         function createWorld() {
             const floorHeight = 2000;
-            createStaticObject(worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight, `ground`);
+            createStaticObject(worldWidth / 2, worldHeight + floorHeight / 2 - 20, worldWidth, floorHeight, 'ground');
         }
 
         function createStaticObject(x, y, w, h, id, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
             World.add(world, body);
-            
             const el = document.createElement('div');
             el.id = id;
             el.className = `game-object ${className}`;
             el.style.width = `${w}px`;
             el.style.height = `${h}px`;
-            el.style.left = `${x - w/2}px`;
-            el.style.top = `${y - h/2}px`;
+            el.style.left = `${x - w / 2}px`;
+            el.style.top = `${y - h / 2}px`;
             worldContainer.appendChild(el);
             gameObjects.set(id, { body, element: el });
         }
-        
-        // --- Player Management ---
+
         function createPlayer(peerId, username, position, isInitialSpawn = false) {
             if (players.has(peerId)) return;
-            
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                inertia: Infinity,
+                frictionAir: 0.02,
+                friction: 0.1,
                 collisionFilter: { group: -1 },
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
-
             const playerEl = document.createElement('div');
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
@@ -824,39 +798,31 @@
                     <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
                     <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
                 </div>
-                <div class="player-name">${username}</div>
-            `;
+                <div class="player-name">${username}</div>`;
             if (!isInitialSpawn) {
                 playerEl.style.opacity = '0';
             }
             worldContainer.appendChild(playerEl);
-
-
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
             indicatorEl.className = 'off-screen-indicator';
             indicatorEl.style.opacity = '0';
             indicatorEl.innerHTML = `
                 <div class="off-screen-arrow"></div>
-                <div class="off-screen-name">${username}</div>
-            `;
+                <div class="off-screen-name">${username}</div>`;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
-            
-            const player = { 
-                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
+            const player = {
+                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false,
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
-                isSprinting: false, maxStamina: 100, currentStamina: 100, 
+                isSprinting: false, maxStamina: 100, currentStamina: 100,
                 staminaDrainRate: 25, staminaRegenRate: 15,
                 lastMoveTimestamp: Date.now(),
                 sideLock: false,
                 sprintModeActive: false
             };
             players.set(peerId, player);
-
-             if (!isInitialSpawn) {
-                 setTimeout(() => {
-                     playerEl.style.opacity = '1';
-                 }, 100);
+            if (!isInitialSpawn) {
+                setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
             }
         }
 
@@ -876,35 +842,30 @@
                 createPlayer(data.peerId, data.username, data.position, true);
                 player = players.get(data.peerId);
             }
-            
             if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
-                Body.setVelocity(player.body, data.velocity || {x:0, y:0});
-
+                Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
                 if (player.direction !== data.direction) {
                     player.direction = data.direction || 'right';
                 }
-
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
                 }
             }
         }
-        
+
         function updatePlayerElements() {
             for (const player of players.values()) {
                 if (!player.body) continue;
                 const { position, angle } = player.body;
-
                 if (!player.isTransformed) {
-                    player.element.style.width = `40px`;
-                    player.element.style.height = `60px`;
+                    player.element.style.width = '40px';
+                    player.element.style.height = '60px';
                 } else {
                     const diameter = 25 * 2;
                     player.element.style.width = `${diameter}px`;
                     player.element.style.height = `${diameter}px`;
                 }
-
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
@@ -912,125 +873,95 @@
         }
 
         function updatePlayerLayering() {
-            const sortedPlayers = Array.from(players.values()).sort((a, b) => {
-                return a.lastMoveTimestamp - b.lastMoveTimestamp;
-            });
-
+            const sortedPlayers = Array.from(players.values()).sort((a, b) => a.lastMoveTimestamp - b.lastMoveTimestamp);
             sortedPlayers.forEach((player, index) => {
                 if (player.element) {
                     player.element.style.zIndex = 10 + index;
                 }
             });
         }
-        
+
         function togglePlayerTransformation(player, forceState) {
             const isMyPlayer = player.peerId === myPeerId;
             const shouldBeTransformed = forceState !== undefined ? forceState : !player.isTransformed;
-
             if (player.isTransformed === shouldBeTransformed) return;
-            
             const oldBody = player.body;
             let newBody;
             const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
-            
             if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
                     frictionAir: 0.005, friction: 0.01, restitution: 0.5,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '50%';
-                if(spriteWrapper) spriteWrapper.style.display = 'none';
+                if (spriteWrapper) spriteWrapper.style.display = 'none';
             } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
                     inertia: Infinity, frictionAir: 0.02, friction: 0.1,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '0';
-                if(spriteWrapper) spriteWrapper.style.display = 'block';
+                if (spriteWrapper) spriteWrapper.style.display = 'block';
             }
-            
             Body.setVelocity(newBody, oldBody.velocity);
             World.remove(world, oldBody);
             World.add(world, newBody);
             player.body = newBody;
             player.isTransformed = shouldBeTransformed;
-            
             if (isMyPlayer) isTransformed = shouldBeTransformed;
         }
 
-        // --- Camera, Input & Animation ---
         function updateCamera() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
-
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-
             camera.scale += (camera.targetScale - camera.scale) * 0.1;
-            
             const targetX = -x * camera.scale + viewportWidth / 2;
             const targetY = -y * camera.scale + viewportHeight / 2;
-            
             camera.x = x;
             camera.y = y;
-
             worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${camera.scale})`;
         }
 
         function updateOffScreenIndicators() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
-
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
             const indicatorPositions = [];
-
             for (const p of players.values()) {
                 if (p.indicator) p.indicator.style.opacity = '0';
             }
-
             for (const otherPlayer of players.values()) {
                 if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) continue;
-
                 const myPos = myPlayer.body.position;
                 const targetPos = otherPlayer.body.position;
                 const screenX = (targetPos.x - camera.x) * camera.scale + viewportWidth / 2;
                 const screenY = (targetPos.y - camera.y) * camera.scale + viewportHeight / 2;
-
                 const isOffScreen = screenX < 0 || screenX > viewportWidth || screenY < 0 || screenY > viewportHeight;
-
                 if (isOffScreen) {
                     const distance = Vector.magnitude(Vector.sub(targetPos, myPos));
                     const padding = 40 + Math.min(100, distance / 100);
-
                     const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
                     const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
                     const angle = Math.atan2(targetPos.y - myPos.y, targetPos.x - myPos.x);
-
-                    indicatorPositions.push({
-                        player: otherPlayer,
-                        x: clampedX,
-                        y: clampedY,
-                        angle: angle,
-                    });
+                    indicatorPositions.push({ player: otherPlayer, x: clampedX, y: clampedY, angle: angle });
                 }
             }
-
-            const STACK_OFFSET = 45; 
-            const STACK_RADIUS = 30; 
+            const STACK_OFFSET = 45;
+            const STACK_RADIUS = 30;
             for (let i = 0; i < indicatorPositions.length; i++) {
                 const current = indicatorPositions[i];
                 let stackCount = 0;
                 for (let j = 0; j < i; j++) {
                     const other = indicatorPositions[j];
-                    const distBetween = Math.hypot(current.x - other.x, current.y - other.y);
-                    if (distBetween < STACK_RADIUS) {
+                    if (Math.hypot(current.x - other.x, current.y - other.y) < STACK_RADIUS) {
                         stackCount++;
                     }
                 }
                 const finalY = current.y + (stackCount * STACK_OFFSET);
-
                 const indicator = current.player.indicator;
                 const arrow = indicator.querySelector('.off-screen-arrow');
                 indicator.style.opacity = '1';
@@ -1041,20 +972,16 @@
             }
         }
 
-
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
-
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'] || myPlayer.sprintModeActive;
-
             if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
             const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
             staminaBar.style.width = `${staminaPercentage}%`;
         }
-
 
         const keys = {};
         function setupInputControls() {
@@ -1069,21 +996,17 @@
 
         function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
         function handleKeyUp(e) { keys[e.code] = false; }
-        
+
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
-
             const body = myPlayer.body;
             const isKeyboardSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
-
             if (isMovingHorizontally) {
                 myPlayer.lastMoveTimestamp = Date.now();
             }
-
-            myPlayer.isSprinting = false; 
-
+            myPlayer.isSprinting = false;
             if (myPlayer.isTransformed) {
                 const moveForce = 0.001;
                 if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
@@ -1092,25 +1015,21 @@
                 if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
             } else {
                 let moveSpeed = 5;
-
                 if ((isKeyboardSprinting || myPlayer.sprintModeActive) && myPlayer.currentStamina > 0 && isMovingHorizontally) {
                     moveSpeed = 9;
                     myPlayer.isSprinting = true;
                     myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
-                    
                     sprintParticleTimer += deltaTime;
                     if (sprintParticleTimer >= SPRINT_PARTICLE_INTERVAL) {
-                        broadcast({type: 'glide-particle', position: myPlayer.body.position, direction: myPlayer.direction});
+                        broadcast({ type: 'glide-particle', position: myPlayer.body.position, direction: myPlayer.direction });
                         createWindParticle(myPlayer.body.position, myPlayer.direction, true);
                         sprintParticleTimer = 0;
                     }
-                    
                     if (myPlayer.currentStamina <= 0) {
                         myPlayer.sprintModeActive = false;
                         document.getElementById('joystick-nub').classList.remove('active');
                     }
                 }
-
                 if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                     if (!myPlayer.sideLock) myPlayer.direction = 'left';
@@ -1127,7 +1046,6 @@
             if (e.repeat) return;
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
-            
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 performJump();
             }
@@ -1154,10 +1072,7 @@
             const myPlayer = players.get(myPeerId);
             if (myPlayer) {
                 myPlayer.sideLock = !myPlayer.sideLock;
-                const lockButton = document.getElementById('mobile-lock-btn');
-                if (lockButton) {
-                    lockButton.classList.toggle('active', myPlayer.sideLock);
-                }
+                document.getElementById('mobile-lock-btn')?.classList.toggle('active', myPlayer.sideLock);
             }
         }
 
@@ -1167,7 +1082,6 @@
             const jumpButton = document.getElementById('mobile-jump-btn');
             const explodeButton = document.getElementById('mobile-explode-btn');
             const lockButton = document.getElementById('mobile-lock-btn');
-
             let joystickActive = false;
             let touchStartTime = 0;
             let touchStartPos = { x: 0, y: 0 };
@@ -1186,19 +1100,15 @@
             joystickZone.addEventListener('touchmove', (e) => {
                 e.preventDefault();
                 if (!joystickActive) return;
-
                 const touch = e.changedTouches[0];
                 const zoneRect = joystickZone.getBoundingClientRect();
                 const deltaX = touch.clientX - (zoneRect.left + joystickRadius);
                 const deltaY = touch.clientY - (zoneRect.top + joystickRadius);
-                
                 const angle = Math.atan2(deltaY, deltaX);
                 const distance = Math.min(maxDelta, Math.hypot(deltaX, deltaY));
-                
                 const newNubX = Math.cos(angle) * distance;
                 const newNubY = Math.sin(angle) * distance;
                 joystickNub.style.transform = `translate(-50%, -50%) translate(${newNubX}px, ${newNubY}px)`;
-
                 const threshold = 0.2;
                 if (newNubX / maxDelta < -threshold) {
                     keys['KeyA'] = true;
@@ -1216,26 +1126,23 @@
                 const touch = e.changedTouches[0];
                 const touchDuration = Date.now() - touchStartTime;
                 const touchDistance = Math.hypot(touch.clientX - touchStartPos.x, touch.clientY - touchStartPos.y);
-
-                // Check for tap
                 if (touchDuration < 200 && touchDistance < 10) {
                     const myPlayer = players.get(myPeerId);
                     if (myPlayer) {
-                        myPlayer.sprintModeActive = !myPlayer.sprintModeActive;
-                        if (myPlayer.currentStamina <= 0) myPlayer.sprintModeActive = false; // Cant turn on with no stamina
+                        if (myPlayer.sprintModeActive || myPlayer.currentStamina > 0) {
+                            myPlayer.sprintModeActive = !myPlayer.sprintModeActive;
+                        }
                         joystickNub.classList.toggle('active', myPlayer.sprintModeActive);
                     }
                 }
-                
                 joystickActive = false;
-                joystickNub.style.transform = `translate(-50%, -50%)`;
+                joystickNub.style.transform = 'translate(-50%, -50%)';
                 keys['KeyA'] = false;
                 keys['KeyD'] = false;
             };
 
             joystickZone.addEventListener('touchend', resetJoystick);
             joystickZone.addEventListener('touchcancel', resetJoystick);
-
             jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
             explodeButton.addEventListener('touchstart', (e) => { e.preventDefault(); respawnPlayer(); });
             lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
@@ -1243,76 +1150,46 @@
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
-
             const particleEl = document.createElement('div');
             particleEl.className = 'wind-particle';
             worldContainer.appendChild(particleEl);
-            
             const xOffset = direction === 'right' ? -20 : 20;
             particleEl.style.left = `${position.x + xOffset}px`;
             particleEl.style.top = `${position.y}px`;
-
             setTimeout(() => particleEl.remove(), 500);
         }
 
         function startAnimationLoop() {
-            let idleFrame = 0;
-            let walkFrame = 0;
-            let animTimer = 0;
-            const loopTime = 50; 
-
-            const IDLE_FPS = 2;
-            const WALK_FPS = 8;
-            const SPRINT_FPS = 14;
-
+            let idleFrame = 0, walkFrame = 0, animTimer = 0;
+            const loopTime = 50;
+            const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
-
                 for (const player of players.values()) {
                     if (!player.body || player.isTransformed) continue;
-                    
                     const speed = Vector.magnitude(player.body.velocity);
-                    player.isWalking = speed > 0.5; 
+                    player.isWalking = speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
-
                     const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
                     if (!spriteWrapper) continue;
-
                     spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
-
                     const sprites = player.element.querySelectorAll('.player-sprite');
-                    if(sprites.length < 2) continue;
-
-                    let currentFps = IDLE_FPS;
-                    if (player.isSprinting) {
-                        currentFps = SPRINT_FPS;
-                    } else if (player.isWalking) {
-                        currentFps = WALK_FPS;
-                    }
-
+                    if (sprites.length < 2) continue;
+                    let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
                     const frameDuration = 1000 / currentFps;
-                    
                     if (animTimer >= frameDuration) {
-                        if(player.isWalking || player.isSprinting) {
+                        if (player.isWalking || player.isSprinting) {
                             walkFrame = (walkFrame + 1) % 4;
                         } else {
                             idleFrame = (idleFrame + 1) % 2;
                         }
                         animTimer = 0;
                     }
-
-                    let currentSpritePath;
-                    if (player.isSprinting || player.isWalking) {
-                        currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
-                    } else { 
-                        currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
-                    }
-
+                    let currentSpritePath = player.isSprinting || player.isWalking ? `./images/player-walk${walkFrame + 1}.png` : `./images/player-idle${idleFrame + 1}.png`;
                     sprites[0].src = currentSpritePath;
                     sprites[1].src = currentSpritePath;
-                    
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
-                        broadcast({type: 'glide-particle', position: player.body.position, direction: player.direction});
+                        broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
                         createWindParticle(player.body.position, player.direction, true);
                     }
                 }
@@ -1324,19 +1201,34 @@
             if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
             return null;
         }
+        
+        function triggerScreenShake() {
+            gameViewport.classList.add('screenshake');
+            setTimeout(() => gameViewport.classList.remove('screenshake'), 400);
+        }
 
         function createRespawnParticles(position) {
-            for (let i = 0; i < 30; i++) {
+            const particleCount = 50;
+            for (let i = 0; i < particleCount; i++) {
                 const particle = document.createElement('div');
                 particle.className = 'respawn-particle';
                 const angle = Math.random() * 2 * Math.PI;
-                const distance = Math.random() * 100 + 50; 
+                const distance = 50 + Math.random() * 120;
+                const size = 5 + Math.random() * 15;
+                
                 particle.style.setProperty('--translateX', `${Math.cos(angle) * distance}px`);
                 particle.style.setProperty('--translateY', `${Math.sin(angle) * distance}px`);
+                particle.style.setProperty('--start-scale', `${0.5 + Math.random() * 0.5}`);
+                
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.backgroundColor = `hsl(0, 0%, ${Math.random() * 20}%)`;
+                if(Math.random() > 0.5) particle.style.borderRadius = '50%';
+                
                 particle.style.left = `${position.x}px`;
                 particle.style.top = `${position.y}px`;
                 worldContainer.appendChild(particle);
-                setTimeout(() => particle.remove(), 700);
+                setTimeout(() => particle.remove(), 800);
             }
         }
 
@@ -1345,22 +1237,16 @@
             for (let i = 0; i < particleCount; i++) {
                 const particle = document.createElement('div');
                 particle.className = 'spawn-in-particle';
-
                 const angle = Math.random() * 2 * Math.PI;
                 const initialDist = Math.random() * 200 + 100;
-                
                 const startX = Math.cos(angle) * initialDist;
                 const startY = Math.sin(angle) * initialDist;
-
                 particle.style.setProperty('--translateX', `${startX}px`);
                 particle.style.setProperty('--translateY', `${startY}px`);
-
-                const duration = 0.5 + (initialDist / 300) * 0.3; 
+                const duration = 0.5 + (initialDist / 300) * 0.3;
                 particle.style.animationDuration = `${duration}s`;
-
                 particle.style.left = `${position.x}px`;
                 particle.style.top = `${position.y}px`;
-                
                 worldContainer.appendChild(particle);
                 setTimeout(() => particle.remove(), duration * 1000);
             }
@@ -1370,9 +1256,12 @@
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
 
+            triggerScreenShake();
+            
             const oldPosition = { ...myPlayer.body.position };
             const currentUsername = myPlayer.username;
             
+            broadcast({ type: 'respawn-explosion', position: oldPosition });
             createRespawnParticles(oldPosition);
             
             removePlayer(myPeerId);
@@ -1381,13 +1270,10 @@
             camera.targetScale = 0.5;
             
             setTimeout(() => {
-                const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200};
-                
+                const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
-
                 setTimeout(() => {
-                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false); 
-                    
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false);
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
@@ -1395,12 +1281,12 @@
                 }, 500);
             }, 1000);
         }
-        
-        // --- UI & Utility Functions ---
+
         function showMessage(message) {
             document.getElementById('message-text').textContent = message;
             document.getElementById('message-box').classList.remove('hidden');
         }
+
         function showLoadingScreen(isCreating) {
             loginView.classList.add('hidden');
             joinView.classList.add('hidden');
@@ -1408,26 +1294,31 @@
             document.getElementById('loading-title').textContent = isCreating ? 'Creating Lobby...' : 'Joining Lobby...';
             document.getElementById('loading-code-display').textContent = lobbyCode || '';
         }
+
         function showJoinView() {
             loginView.classList.add('hidden');
             joinView.classList.remove('hidden');
-            document.getElementById('username-join').value = document.getElementById('username').value;
+            usernameJoinInput.value = usernameInput.value;
         }
+
         function showMainView() {
             loginView.classList.remove('hidden');
             joinView.classList.add('hidden');
         }
+
         function updateLobbyControls() {
             if (isHost) {
                 deleteLobbyBtn.classList.toggle('hidden', connections.size > 0);
                 leaveLobbyBtn.classList.toggle('hidden', connections.size === 0);
             }
         }
+
         function handleError(err) {
             console.error('PeerJS error:', err);
             showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
             leaveLobby();
         }
+
         function generateLobbyCode() {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
         }
