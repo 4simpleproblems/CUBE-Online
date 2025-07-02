@@ -494,6 +494,7 @@
         let peer, myPeerId, lobbyCode, isHost = false;
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
+        const SESSION_KEY = 'humanSimulatorSession';
 
         // --- UI Elements ---
         const gameViewport = document.getElementById('game-viewport');
@@ -533,26 +534,32 @@
 
 
         function checkForSession() {
-            const params = new URLSearchParams(window.location.search);
-            const sessionUsername = params.get('username');
-            const sessionLobbyCode = params.get('lobby');
-            const sessionIsHost = params.get('host') === 'true';
-
-            if (sessionUsername && sessionLobbyCode) {
-                isHost = sessionIsHost;
-                lobbyCode = sessionLobbyCode;
+            // sessionStorage is the source of truth for an active session
+            const sessionDataString = sessionStorage.getItem(SESSION_KEY);
+            if (sessionDataString) {
+                const sessionData = JSON.parse(sessionDataString);
+                isHost = sessionData.isHost;
+                lobbyCode = sessionData.lobbyCode;
                 
                 // Pre-fill and disable inputs
-                usernameInput.value = sessionUsername;
-                usernameJoinInput.value = sessionUsername;
-                lobbyCodeInput.value = sessionLobbyCode;
+                usernameInput.value = sessionData.username;
+                usernameJoinInput.value = sessionData.username;
+                lobbyCodeInput.value = sessionData.lobbyCode;
 
                 lockLoginInputs();
                 
-                // Attempt to reconnect
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
-                initializePeer(sessionUsername, isHost ? LOBBY_PREFIX + lobbyCode : null);
+                initializePeer(sessionData.username, isHost ? LOBBY_PREFIX + lobbyCode : null);
+                return;
+            }
+
+            // If no session, check URL for a lobby code to pre-fill the join form
+            const params = new URLSearchParams(window.location.search);
+            const urlLobbyCode = params.get('lobby');
+            if(urlLobbyCode) {
+                lobbyCodeInput.value = urlLobbyCode;
+                showJoinView();
             }
         }
 
@@ -576,11 +583,12 @@
             backToMainBtn.disabled = false;
         }
 
-        function updateUrlWithSessionInfo(username, code, isHosting) {
+        function updateUrlWithLobbyCode(code) {
             const url = new URL(window.location);
-            url.searchParams.set('username', username);
             url.searchParams.set('lobby', code);
-            url.searchParams.set('host', isHosting);
+            // We no longer store username or host status in the URL for security
+            url.searchParams.delete('username');
+            url.searchParams.delete('host');
             history.pushState({}, '', url);
         }
 
@@ -600,8 +608,12 @@
                 if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
             
+            // Lock UI and save session state
             lockLoginInputs();
-            updateUrlWithSessionInfo(username, lobbyCode, isHost);
+            const sessionData = { username, lobbyCode, isHost };
+            sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+            updateUrlWithLobbyCode(lobbyCode);
+
             showLoadingScreen(isCreating);
             initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
@@ -695,6 +707,8 @@
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             
+            // Clear session data and URL
+            sessionStorage.removeItem(SESSION_KEY);
             clearUrlParams();
             unlockLoginInputs();
             showMainView();
@@ -808,7 +822,6 @@
                 </div>
                 <div class="player-name">${username}</div>
             `;
-            // If not the initial spawn (i.e., a respawn), start transparent
             if (!isInitialSpawn) {
                 playerEl.style.opacity = '0';
             }
@@ -830,12 +843,11 @@
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
                 staminaDrainRate: 25, staminaRegenRate: 15,
-                lastMoveTimestamp: Date.now(), // For layering
-                sideLock: false // For side locking
+                lastMoveTimestamp: Date.now(),
+                sideLock: false
             };
             players.set(peerId, player);
 
-            // Force the opacity to 1 after a short delay to trigger the transition
              if (!isInitialSpawn) {
                  setTimeout(() => {
                      playerEl.style.opacity = '1';
@@ -969,7 +981,6 @@
             const viewportHeight = gameViewport.clientHeight;
             const indicatorPositions = [];
 
-            // Hide all indicators initially
             for (const p of players.values()) {
                 if (p.indicator) p.indicator.style.opacity = '0';
             }
@@ -986,8 +997,7 @@
 
                 if (isOffScreen) {
                     const distance = Vector.magnitude(Vector.sub(targetPos, myPos));
-                    // Dynamic padding: starts at 20, increases with distance
-                    const padding = 20 + Math.min(100, distance / 50);
+                    const padding = 40 + Math.min(100, distance / 100);
 
                     const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
                     const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
@@ -1002,9 +1012,8 @@
                 }
             }
 
-            // Stacking logic
-            const STACK_OFFSET = 45; // Vertical distance between stacked indicators
-            const STACK_RADIUS = 30; // How close indicators need to be to stack
+            const STACK_OFFSET = 45; 
+            const STACK_RADIUS = 30; 
             for (let i = 0; i < indicatorPositions.length; i++) {
                 const current = indicatorPositions[i];
                 let stackCount = 0;
@@ -1015,14 +1024,13 @@
                         stackCount++;
                     }
                 }
-                current.y += stackCount * STACK_OFFSET;
+                const finalY = current.y + (stackCount * STACK_OFFSET);
 
-                // Final positioning
                 const indicator = current.player.indicator;
                 const arrow = indicator.querySelector('.off-screen-arrow');
                 indicator.style.opacity = '1';
                 indicator.style.left = `${current.x}px`;
-                indicator.style.top = `${current.y}px`;
+                indicator.style.top = `${finalY}px`;
                 indicator.style.transform = `translate(-50%, -50%)`;
                 arrow.style.transform = `rotate(${current.angle + Math.PI / 2}rad)`;
             }
@@ -1081,7 +1089,7 @@
                 let moveSpeed = 5;
 
                 if (isTryingToSprint && myPlayer.currentStamina > 0 && isMovingHorizontally) {
-                    moveSpeed = 9; // Faster speed
+                    moveSpeed = 9;
                     myPlayer.isSprinting = true;
                     myPlayer.currentStamina = Math.max(0, myPlayer.currentStamina - myPlayer.staminaDrainRate * (deltaTime / 1000));
                     
@@ -1129,9 +1137,7 @@
             }
         }
 
-        function setupMobileControls() {
-            // Mobile controls logic can be expanded here
-        }
+        function setupMobileControls() {}
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
