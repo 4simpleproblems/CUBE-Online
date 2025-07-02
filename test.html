@@ -536,7 +536,6 @@
         joinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
         showJoinViewBtn.addEventListener('click', showJoinView);
         backToMainBtn.addEventListener('click', showMainView);
-        document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         window.addEventListener('load', checkForSession);
@@ -732,6 +731,27 @@
             showMainView();
         }
 
+        function handleJoinRejection() {
+            const codeToKeep = lobbyCodeInput.value;
+            const usernameToEdit = usernameJoinInput.value;
+
+            if (peer) peer.destroy();
+            connections.clear();
+            sessionStorage.removeItem(SESSION_KEY);
+            clearUrlParams();
+            isHost = false;
+
+            unlockLoginInputs();
+            loadingView.classList.add('hidden');
+            
+            showJoinView();
+
+            lobbyCodeInput.value = codeToKeep;
+            usernameJoinInput.value = usernameToEdit;
+            usernameJoinInput.focus();
+            usernameJoinInput.select();
+        }
+
         function handleData(data, peerId) {
             switch (data.type) {
                 case 'player-update':
@@ -747,8 +767,7 @@
                     createRespawnParticles(data.position);
                     break;
                 case 'name-taken':
-                    showMessage('This username is already taken. Please choose another.');
-                    leaveLobby();
+                    showMessage('This username is already taken. Please choose another.', handleJoinRejection);
                     break;
                 case 'welcome':
                     startGame(myUsername);
@@ -761,7 +780,7 @@
                     break;
                 case 'new-player-joined':
                     const pInfo = data.playerInfo;
-                    if (pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
+                    if (pInfo && pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
                         createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true);
                     }
                     break;
@@ -894,7 +913,7 @@
 
         function updatePlayer(data) {
             let player = players.get(data.peerId);
-            if (!player) {
+            if (!player && data.username) {
                 createPlayer(data.peerId, data.username, data.position, true);
                 player = players.get(data.peerId);
             }
@@ -1338,9 +1357,24 @@
             }, 1000);
         }
 
-        function showMessage(message) {
+        function showMessage(message, onOkCallback) {
             document.getElementById('message-text').textContent = message;
-            document.getElementById('message-box').classList.remove('hidden');
+            const messageBox = document.getElementById('message-box');
+            const okButton = document.getElementById('message-box-ok');
+            
+            const newOkButton = okButton.cloneNode(true);
+            okButton.parentNode.replaceChild(newOkButton, okButton);
+
+            const closeAndCallback = () => {
+                messageBox.classList.add('hidden');
+                if (onOkCallback) {
+                    onOkCallback();
+                }
+            };
+            
+            newOkButton.addEventListener('click', closeAndCallback, { once: true });
+
+            messageBox.classList.remove('hidden');
         }
 
         function showLoadingScreen(isCreating) {
@@ -1371,8 +1405,7 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
-            leaveLobby();
+            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`, leaveLobby);
         }
 
         function generateLobbyCode() {
