@@ -55,7 +55,7 @@
         .player-object {
             background-color: transparent; /* Player container is invisible */
             border: none; /* No border for the player container itself */
-            transition: border-radius 0.2s ease, opacity 0.2s ease;
+            transition: border-radius 0.2s ease, opacity 0.2s ease, height 0.2s ease; /* NEW: Added height transition */
             z-index: 10;
         }
 
@@ -322,6 +322,54 @@
             border-radius: 10px;
             white-space: nowrap;
         }
+
+        /* NEW: Styles for Survival HUD (Food/Water) and World Objects */
+        #survival-hud {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 25;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .status-bar-container {
+            width: 200px;
+            height: 20px;
+            background-color: rgba(0,0,0,0.5);
+            border: 2px solid #000;
+            border-radius: 5px;
+            padding: 2px;
+            box-sizing: border-box;
+        }
+        .bar {
+            height: 100%;
+            transition: width 0.2s linear;
+            border-radius: 2px;
+        }
+        #food-bar { 
+            background-color: #d9534f; /* Red */
+            width: 100%; 
+        }
+        #water-bar { 
+            background-color: #5bc0de; /* Blue */
+            width: 100%; 
+        }
+        .pond-object {
+            background-color: rgba(0, 100, 255, 0.5);
+            border: 2px solid #0056b3;
+            z-index: 5;
+            box-sizing: border-box;
+        }
+        .cherry-object {
+            position: absolute;
+            background-color: #dc3545;
+            border: 1px solid #c82333;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            z-index: 6;
+        }
     </style>
 </head>
 <body>
@@ -334,6 +382,15 @@
         <div id="game-ui" class="hidden">
             <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
             <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+        </div>
+
+        <div id="survival-hud" class="hidden">
+            <div class="status-bar-container">
+                <div id="food-bar" class="bar"></div>
+            </div>
+            <div class="status-bar-container">
+                <div id="water-bar" class="bar"></div>
+            </div>
         </div>
 
         <div id="mobile-controls" class="hidden">
@@ -390,11 +447,21 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
+        // NEW: Maps to store ponds and cherries
+        const ponds = new Map();
+        const cherries = new Map();
         const worldWidth = 50000; // Much wider world
         const worldHeight = 10000; // Taller world to feel infinite
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
+        
+        // NEW: Player survival stats
+        let foodLevel = 100;
+        const maxFood = 100;
+        let waterLevel = 100;
+        const maxWater = 100;
+        let isDrinking = false;
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -414,6 +481,8 @@
         const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
         const hostInfoDiv = document.getElementById('host-info');
         const mobileControls = document.getElementById('mobile-controls');
+        // NEW: UI element for survival bars
+        const survivalHud = document.getElementById('survival-hud');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -449,6 +518,7 @@
                 
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
+                survivalHud.classList.remove('hidden'); // NEW: Show survival bars
                 
                 initPhysics();
                 createWorld();
@@ -525,6 +595,7 @@
             isHost = false;
             
             gameUi.classList.add('hidden');
+            survivalHud.classList.add('hidden'); // NEW: Hide survival bars
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             showMainView();
@@ -538,6 +609,15 @@
                 case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
+                // NEW: Handle removal of a cherry for all players
+                case 'remove-cherry':
+                    const cherry = cherries.get(data.id);
+                    if (cherry) {
+                        World.remove(world, cherry.body);
+                        cherry.element.remove();
+                        cherries.delete(data.id);
+                    }
+                    break;
             }
         }
 
@@ -560,20 +640,28 @@
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
+                
+                // NEW: Apply stat decay over time and update the bars
+                if (players.has(myPeerId)) {
+                    foodLevel = Math.max(0, foodLevel - 0.01);
+                    waterLevel = Math.max(0, waterLevel - 0.015);
+                    updateStatusBars();
+                }
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                      broadcast({
-                        type: 'player-update',
-                        peerId: myPeerId,
-                        position: myPlayer.body.position,
-                        velocity: myPlayer.body.velocity,
-                        isTransformed: myPlayer.isTransformed,
-                        direction: myPlayer.direction
-                    });
+                         type: 'player-update',
+                         peerId: myPeerId,
+                         position: myPlayer.body.position,
+                         velocity: myPlayer.body.velocity,
+                         isTransformed: myPlayer.isTransformed,
+                         direction: myPlayer.direction
+                     });
                 }
             });
 
+            // NEW: Updated collision logic for cherries and ground detection
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
@@ -583,20 +671,141 @@
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
 
-                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
+                    const otherBody = pair.bodyA.isStatic ? pair.bodyB : pair.bodyA;
+
+                    // Ground check
+                    if (otherBody.isStatic && !otherBody.isSensor) {
                         player.onGround = true;
+                    }
+
+                    // Cherry collision (only for the local player)
+                    if (player.peerId === myPeerId && otherBody.label.startsWith('cherry')) {
+                        const cherryId = otherBody.label;
+                        const cherry = cherries.get(cherryId);
+                        if (cherry) {
+                            foodLevel = Math.min(foodLevel + 15, maxFood); // Replenish food
+                            updateStatusBars();
+                            
+                            // Remove for local player
+                            World.remove(world, cherry.body);
+                            cherry.element.remove();
+                            cherries.delete(cherryId);
+
+                            // Tell others to remove it
+                            broadcast({ type: 'remove-cherry', id: cherryId });
+                        }
                     }
                 }
             });
+
+            // NEW: Collision check to see if player is in a pond
+            Events.on(engine, 'collisionActive', (event) => {
+                const pairs = event.pairs;
+                const myPlayer = players.get(myPeerId);
+                if (!myPlayer) return;
+
+                let inPond = false;
+                for (const pair of pairs) {
+                    const playerBody = getPlayerBodyFromPair(pair);
+                    if (!playerBody || playerBody.label.split('_')[1] !== myPeerId) continue;
+
+                    const otherBody = pair.bodyA === playerBody ? pair.bodyB : pair.bodyA;
+                    if (otherBody.label.startsWith('pond')) {
+                        inPond = true;
+                        break;
+                    }
+                }
+                myPlayer.inPond = inPond;
+            });
         }
 
+        // NEW: Updated to spawn ponds and cherries
         function createWorld() {
             // A single, seemingly infinite white floor
-            const floorHeight = 2000; // Very thick floor
-            createStaticObject(worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight, `ground`);
+            const floorHeight = 2000;
+            createStaticObject(`ground`, worldWidth / 2, worldHeight + floorHeight/2 - 20, worldWidth, floorHeight);
+
+            // Generate Ponds
+            const numPonds = 30;
+            for (let i = 0; i < numPonds; i++) {
+                const pondWidth = Math.random() * 400 + 250;
+                const pondHeight = Math.random() * 60 + 40;
+                const x = Math.random() * (worldWidth - pondWidth);
+                const y = worldHeight - pondHeight / 2;
+                createPond(`pond_${i}`, x + pondWidth / 2, y, pondWidth, pondHeight);
+            }
+
+            // Generate Cherries
+            const numCherries = 150;
+            for (let i = 0; i < numCherries; i++) {
+                let cherryX, cherryY;
+                let validPosition = false;
+                let attempts = 0;
+                while (!validPosition && attempts < 50) {
+                    cherryX = Math.random() * worldWidth;
+                    cherryY = worldHeight - 10; // Position on the ground
+                    
+                    let isInPond = false;
+                    for(const pond of ponds.values()){
+                        const pos = pond.body.position;
+                        const vertices = pond.body.vertices;
+                        if(cherryX > vertices[0].x && cherryX < vertices[1].x){
+                            isInPond = true;
+                            break;
+                        }
+                    }
+
+                    if (!isInPond) {
+                       validPosition = true;
+                    }
+                    attempts++;
+                }
+                if (validPosition) {
+                    createCherry(`cherry_${i}`, cherryX, cherryY);
+                }
+            }
+        }
+        
+        // NEW: Function to create a pond (visual element + sensor body)
+        function createPond(id, x, y, w, h) {
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'game-object pond-object';
+            el.style.width = `${w}px`;
+            el.style.height = `${h}px`;
+            el.style.left = `${x - w / 2}px`;
+            el.style.top = `${y - h / 2}px`;
+            worldContainer.appendChild(el);
+
+            const body = Bodies.rectangle(x, y, w, h, {
+                isStatic: true,
+                isSensor: true, // Allows player to walk through
+                label: id
+            });
+            World.add(world, body);
+            ponds.set(id, { body, element: el });
+        }
+        
+        // NEW: Function to create a cherry (visual element + sensor body)
+        function createCherry(id, x, y) {
+            const size = 15;
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'cherry-object';
+            el.style.left = `${x - size/2}px`;
+            el.style.top = `${y - size/2}px`;
+            worldContainer.appendChild(el);
+
+            const body = Bodies.rectangle(x, y, size, size, {
+                isStatic: true,
+                isSensor: true, // Allows player to trigger collision without stopping
+                label: id
+            });
+            World.add(world, body);
+            cherries.set(id, { body, element: el });
         }
 
-        function createStaticObject(x, y, w, h, id, className = '') {
+        function createStaticObject(id, x, y, w, h, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
             World.add(world, body);
             
@@ -627,9 +836,9 @@
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
-                <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
+                <img src="https://i.imgur.com/Jli5T2l.png" class="player-sprite" alt="Player">
                 <div class="player-name">${username}</div>
-            `;
+            `; // Note: Using an online placeholder for image
             worldContainer.appendChild(playerEl);
 
             const indicatorEl = document.createElement('div');
@@ -644,7 +853,8 @@
             
             players.set(peerId, { 
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
-                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false
+                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false, 
+                inPond: false // NEW: Track if player is in a pond
             });
         }
 
@@ -681,14 +891,11 @@
                 if (!player.body) continue;
                 const { position, angle } = player.body;
 
-                if (!player.isTransformed) {
-                    player.element.style.width = `40px`;
-                    player.element.style.height = `60px`;
-                } else {
-                    const diameter = 25 * 2;
-                    player.element.style.width = `${diameter}px`;
-                    player.element.style.height = `${diameter}px`;
-                }
+                const width = player.body.bounds.max.x - player.body.bounds.min.x;
+                const height = player.body.bounds.max.y - player.body.bounds.min.y;
+
+                player.element.style.width = `${width}px`;
+                player.element.style.height = `${height}px`;
 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
@@ -805,7 +1012,7 @@
         
         function processPlayerInput() {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead) return;
+            if (!myPlayer || myPlayer.isDead || isDrinking) return; // NEW: Prevent movement while drinking
 
             const body = myPlayer.body;
 
@@ -829,22 +1036,94 @@
             }
         }
 
+        // NEW: Updated to handle drinking action
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
             const body = myPlayer.body;
 
-            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+            if ((e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') && !isDrinking) {
                 if (!isTransformed && myPlayer.onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
                      myPlayer.onGround = false;
                 }
             }
             
-            if (e.code === 'KeyB') {
+            if (e.code === 'KeyB' && !isDrinking) {
                 togglePlayerTransformation(myPlayer);
             }
+
+            if (e.code === 'KeyE' && myPlayer.inPond && !isDrinking) {
+                startDrinking(myPlayer);
+            }
         }
+        
+        // NEW: Function to handle the drinking action
+        function startDrinking(player) {
+            if (isDrinking) return;
+            isDrinking = true;
+
+            const oldBody = player.body;
+            const newHeight = 30; // Half of original 60
+            const newWidth = 40;
+
+            // Recreate body at half height
+            const newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y + 15, newWidth, newHeight, {
+                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                collisionFilter: oldBody.collisionFilter, label: oldBody.label
+            });
+            
+            Body.setVelocity(newBody, oldBody.velocity);
+            World.remove(world, oldBody);
+            World.add(world, newBody);
+            player.body = newBody;
+
+            // Replenish water over time
+            const drinkInterval = setInterval(() => {
+                if (waterLevel >= maxWater || !player.inPond) {
+                    stopDrinking(player, drinkInterval);
+                } else {
+                    waterLevel = Math.min(waterLevel + 10, maxWater);
+                    updateStatusBars();
+                }
+            }, 200);
+
+            // Automatically stop after 2 seconds
+            setTimeout(() => {
+                stopDrinking(player, drinkInterval);
+            }, 2000);
+        }
+        
+        // NEW: Function to stop drinking and restore player size
+        function stopDrinking(player, interval) {
+            if (!isDrinking) return;
+            clearInterval(interval);
+            isDrinking = false;
+
+            const oldBody = player.body;
+            const originalHeight = 60;
+            const originalWidth = 40;
+
+            // Recreate body at full height, adjusting position to avoid clipping
+            const newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y - 15, originalWidth, originalHeight, {
+                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                collisionFilter: oldBody.collisionFilter, label: oldBody.label
+            });
+
+            Body.setVelocity(newBody, oldBody.velocity);
+            World.remove(world, oldBody);
+            World.add(world, newBody);
+            player.body = newBody;
+        }
+        
+        // NEW: Function to update the width of the food and water bars
+        function updateStatusBars() {
+            const foodBar = document.getElementById('food-bar');
+            const waterBar = document.getElementById('water-bar');
+            if (foodBar) foodBar.style.width = `${(foodLevel / maxFood) * 100}%`;
+            if (waterBar) waterBar.style.width = `${(waterLevel / maxWater) * 100}%`;
+        }
+
 
         function setupMobileControls() {
              // Mobile controls logic can be expanded here
@@ -876,21 +1155,25 @@
             const IDLE_FRAME_DURATION = 1000 / IDLE_FPS; // 500ms
             const WALK_FRAME_DURATION = 1000 / WALK_FPS; // 250ms
 
+            // Using placeholder images
+            const idleSprites = ['https://i.imgur.com/Jli5T2l.png', 'https://i.imgur.com/Jli5T2l.png']; // Replace with actual idle frames
+            const walkSprites = ['https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png', 'https://i.imgur.com/uPhs24g.png']; // Replace with actual walk frames
+
             animationInterval = setInterval(() => {
                 idleTimer += loopTime;
                 walkTimer += loopTime;
 
                 if (idleTimer >= IDLE_FRAME_DURATION) { 
-                    idleFrame = (idleFrame + 1) % 2; 
+                    idleFrame = (idleFrame + 1) % idleSprites.length; 
                     idleTimer = 0; 
                 }
                 if (walkTimer >= WALK_FRAME_DURATION) { 
-                    walkFrame = (walkFrame + 1) % 4; 
+                    walkFrame = (walkFrame + 1) % walkSprites.length; 
                     walkTimer = 0; 
                 }
 
                 for (const player of players.values()) {
-                    if (!player.body || player.isTransformed) continue;
+                    if (!player.body || player.isTransformed || isDrinking) continue; // NEW: Freeze animation while drinking
                     
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = player.onGround && speed > 0.5;
@@ -900,9 +1183,9 @@
                     if (!sprite) continue;
 
                     if (player.isWalking) {
-                        sprite.src = `../images/player-walk${walkFrame + 1}.png`;
+                        sprite.src = walkSprites[walkFrame];
                     } else {
-                        sprite.src = `../images/player-idle${idleFrame + 1}.png`;
+                        sprite.src = idleSprites[idleFrame];
                     }
                     
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
