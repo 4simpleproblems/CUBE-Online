@@ -133,10 +133,10 @@
         .player-sprite {
             width: 100%;
             height: 100%;
-            object-fit: contain;
-            image-rendering: pixelated;
+            object-fit: cover;
             position: absolute;
             backface-visibility: hidden;
+            background-color: #ddd;
         }
 
         .player-sprite.front { transform: rotateY(0deg); }
@@ -705,7 +705,7 @@
                 const peerId = conn.peer;
                 switch(data.type) {
                     case 'request-to-join':
-                        const isUsernameTaken = Array.from(players.values()).some(p => p.username === data.username);
+                        const isUsernameTaken = Array.from(players.values()).some(p => p.username.toLowerCase() === data.username.toLowerCase());
                         if (isUsernameTaken) {
                             conn.send({ type: 'reject-join', reason: 'Username is taken.' });
                         } else {
@@ -718,6 +718,12 @@
                             }));
                             conn.send({ type: 'approve-join', roster: currentPlayers, peerId: peerId });
                             connections.set(peerId, conn);
+                            
+                            // Create the new player on the host and inform everyone
+                            const newPlayerData = { peerId: peerId, username: data.username, position: { x: worldWidth / 2, y: worldHeight - 200 } };
+                            createPlayer(newPlayerData.peerId, newPlayerData.username, newPlayerData.position);
+                            broadcast({ type: 'new-peer-announcement', ...newPlayerData }, newPlayerData.peerId);
+
                             updateLobbyControls();
                         }
                         break;
@@ -742,11 +748,6 @@
                     lockLoginInputs();
                     startGame(username);
                     data.roster.forEach(pData => createPlayer(pData.peerId, pData.username, pData.position));
-                    if (isHost) { // Host needs to add the new player too
-                         const newPlayerData = { peerId: data.peerId, username: data.username, position: { x: worldWidth / 2, y: worldHeight - 200 } };
-                         createPlayer(newPlayerData.peerId, newPlayerData.username, newPlayerData.position);
-                         broadcast({ type: 'player-update', ...newPlayerData, velocity: {x:0,y:0} }, newPlayerData.peerId);
-                    }
                     break;
                 case 'reject-join':
                     showMessage(data.reason);
@@ -790,7 +791,7 @@
                         position: myPlayer.body.position, velocity: myPlayer.body.velocity,
                         isTransformed: myPlayer.isTransformed, direction: myPlayer.direction
                     };
-                    isHost ? broadcast(data) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(data);
+                    isHost ? broadcast(data, myPeerId) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(data);
                 }
             });
             Events.on(engine, 'collisionStart', (event) => {
@@ -842,7 +843,7 @@
             const playerEl = document.createElement('div');
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `<div class="player-sprite-wrapper"><img src="./images/player-idle1.png" class="player-sprite front"><img src="./images/player-idle1.png" class="player-sprite back"></div><div class="player-name">${username}</div>`;
+            playerEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://via.placeholder.com/40x60/888/fff?text=P" class="player-sprite front"><img src="https://via.placeholder.com/40x60/888/fff?text=P" class="player-sprite back"></div><div class="player-name">${username}</div>`;
             worldContainer.appendChild(playerEl);
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
@@ -856,9 +857,6 @@
                 staminaRegenRate: 15, lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false
             };
             players.set(peerId, player);
-            if(peerId === myPeerId && !isHost){
-                 broadcast({ type: 'new-peer-announcement', peerId: myPeerId, username: username, position: position });
-            }
         }
 
         function removePlayer(peerId) {
@@ -872,12 +870,12 @@
         }
 
         function createNPC(name, position) {
-            const npcBody = Bodies.rectangle(position.x, position.y, 40, 60, { inertia: Infinity, frictionAir: 0.02, friction: 0.1, label: `npc_${name}`});
+            const npcBody = Bodies.rectangle(position.x, position.y, 40, 60, { inertia: Infinity, frictionAir: 0.02, friction: 0.1, label: `npc_${name}`, collisionFilter: { group: -1 } });
             World.add(world, npcBody);
             const npcEl = document.createElement('div');
             npcEl.id = `npc-el-${name}`;
             npcEl.className = 'game-object player-object';
-            npcEl.innerHTML = `<div class="player-sprite-wrapper"><img src="./images/player-idle1.png" class="player-sprite front"><img src="./images/player-idle1.png" class="player-sprite back"></div><div class="npc-name">[NPC] ${name}</div>`;
+            npcEl.innerHTML = `<div class="player-sprite-wrapper"><img src="https://via.placeholder.com/40x60/333/fff?text=N" class="player-sprite front"><img src="https://via.placeholder.com/40x60/333/fff?text=N" class="player-sprite back"></div><div class="npc-name">[NPC] ${name}</div>`;
             worldContainer.appendChild(npcEl);
             const npc = {
                 name, body: npcBody, element: npcEl, onGround: true, direction: 'left', isWalking: false,
@@ -933,9 +931,6 @@
                 
                 const spriteWrapper = npc.element.querySelector('.player-sprite-wrapper');
                 spriteWrapper.style.transform = `rotateY(${npc.direction === 'left' ? 180 : 0}deg)`;
-                const sprites = npc.element.querySelectorAll('.player-sprite');
-                sprites[0].src = npc.isWalking ? './images/player-walk1.png' : './images/player-idle1.png';
-                sprites[1].src = npc.isWalking ? './images/player-walk1.png' : './images/player-idle1.png';
             }
         }
         
@@ -1244,32 +1239,13 @@
             animationInterval = setInterval(() => {
                 animTimer += loopTime;
                 for (const player of players.values()) {
-                    if (!player.body || player.isTransformed) continue;
+                    if (!player.body || player.isTransformed || !player.element) continue;
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
                     const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
                     if (!spriteWrapper) continue;
                     spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
-                    const sprites = player.element.querySelectorAll('.player-sprite');
-                    if (sprites.length < 2) continue;
-                    let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
-                    const frameDuration = 1000 / currentFps;
-                    if (animTimer >= frameDuration) {
-                        if (player.isWalking || player.isSprinting) {
-                            walkFrame = (walkFrame + 1) % 4;
-                        } else {
-                            idleFrame = (idleFrame + 1) % 2;
-                        }
-                        animTimer = 0;
-                    }
-                    let currentSpritePath = player.isSprinting || player.isWalking ? `./images/player-walk${walkFrame + 1}.png` : `./images/player-idle${idleFrame + 1}.png`;
-                    sprites[0].src = currentSpritePath;
-                    sprites[1].src = currentSpritePath;
-                    if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
-                        broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
-                        createWindParticle(player.body.position, player.direction, true);
-                    }
                 }
             }, loopTime);
         }
@@ -1346,7 +1322,7 @@
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
                 setTimeout(() => {
-                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false);
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition);
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
@@ -1388,7 +1364,7 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
+            showMessage(`Connection error: ${err.type}. Check lobby code or connection.`);
             leaveLobby();
         }
 
