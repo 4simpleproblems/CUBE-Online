@@ -20,6 +20,7 @@
             --secondary-hover-color: #5a6268;
             --danger-color: #e53935;
             --danger-hover-color: #c62828;
+            --lava-color: #ff4500;
         }
 
         body {
@@ -61,6 +62,16 @@
         .player-object {
             background-color: transparent; /* Player container is invisible */
             transition: border-radius 0.2s ease;
+        }
+
+        .lava-object {
+            background-color: var(--lava-color);
+            box-shadow: 0 0 20px var(--lava-color);
+        }
+
+        .house-object {
+            background-color: #8b4513;
+            border: 5px solid #5d2f0e;
         }
 
         .player-sprite {
@@ -271,16 +282,17 @@
 
     <script>
         // --- Matter.js Aliases ---
-        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
+        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector, Composite, Detector } = Matter;
 
         // --- Game & Physics State ---
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 3000;
-        const worldHeight = 1500;
+        const houses = new Map();
+        const worldWidth = 6000; // Increased map size
+        const worldHeight = 2000; // Increased map size
         let isTransformed = false;
-        let animationInterval; // To hold the animation timer
+        let animationInterval;
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -334,7 +346,7 @@
                 gameUi.classList.remove('hidden');
                 
                 initPhysics();
-                createWorldBounds();
+                createWorld();
                 
                 const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
                 createPlayer(myPeerId, username, startPos);
@@ -403,6 +415,7 @@
             players.clear();
             connections.clear();
             gameObjects.clear();
+            houses.clear();
             worldContainer.innerHTML = '';
             isHost = false;
             
@@ -435,13 +448,15 @@
             Runner.run(runner, engine);
             
             Events.on(engine, 'afterUpdate', () => {
-                processPlayerInput(); // Handle continuous movement
+                processPlayerInput();
                 updatePlayerElements();
                 updateCamera();
+                checkPlayerInteractions();
+
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
                     const speed = Vector.magnitude(myPlayer.body.velocity);
-                    const onGround = Math.abs(myPlayer.body.velocity.y) < 0.1;
+                    const onGround = myPlayer.onGround;
 
                     myPlayer.isIdle = speed < 0.5 && onGround;
                     myPlayer.isWalking = speed >= 0.5 && onGround;
@@ -458,26 +473,54 @@
             });
         }
 
-        function createWorldBounds() {
+        function createWorld() {
             const thickness = 200;
+            // World bounds
             createStaticObject(worldWidth / 2, worldHeight + thickness/2, worldWidth, thickness, 'ground');
             createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling');
             createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
             createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
+            // Platforms
             createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
             createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
             createStaticObject(1500, worldHeight - 250, 300, 30, 'platform3');
             createStaticObject(2200, worldHeight - 500, 500, 30, 'platform4');
+            createStaticObject(3000, worldHeight - 300, 800, 30, 'platform5');
+            createStaticObject(4000, worldHeight - 600, 200, 30, 'platform6');
+            createStaticObject(4500, worldHeight - 450, 600, 30, 'platform7');
+
+            // Lava Pits
+            createSensorObject(1800, worldHeight - 15, 400, 30, 'lava1', 'lava-object');
+            createSensorObject(3500, worldHeight - 15, 300, 30, 'lava2', 'lava-object');
+
+            // Houses
+            createHouse(800, worldHeight - 120, 'house1', {x: 100, y: -1000});
+            createHouse(2800, worldHeight - 120, 'house2', {x: 100, y: -2000});
         }
 
-        function createStaticObject(x, y, w, h, id) {
+        function createStaticObject(x, y, w, h, id, className = '') {
             const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5 });
             World.add(world, body);
             
             const el = document.createElement('div');
             el.id = id;
-            el.className = 'game-object';
+            el.className = `game-object ${className}`;
+            el.style.width = `${w}px`;
+            el.style.height = `${h}px`;
+            el.style.left = `${x - w/2}px`;
+            el.style.top = `${y - h/2}px`;
+            worldContainer.appendChild(el);
+            gameObjects.set(id, { body, element: el });
+        }
+
+        function createSensorObject(x, y, w, h, id, className = '') {
+            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, isSensor: true, label: id });
+            World.add(world, body);
+            
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = `game-object ${className}`;
             el.style.width = `${w}px`;
             el.style.height = `${h}px`;
             el.style.left = `${x - w/2}px`;
@@ -486,12 +529,47 @@
             gameObjects.set(id, { body, element: el });
         }
         
+        function createHouse(x, y, id, interiorPos) {
+            const width = 200;
+            const height = 120;
+            const doorWidth = 40;
+            const doorHeight = 60;
+
+            // Main house body (no physics)
+            const el = document.createElement('div');
+            el.id = id;
+            el.className = 'game-object house-object';
+            el.style.width = `${width}px`;
+            el.style.height = `${height}px`;
+            el.style.left = `${x - width/2}px`;
+            el.style.top = `${y - height/2}px`;
+            worldContainer.appendChild(el);
+            
+            // Door sensor
+            const doorBody = Bodies.rectangle(x, y + (height/2 - doorHeight/2), doorWidth, doorHeight, { 
+                isStatic: true, 
+                isSensor: true,
+                label: `door_${id}`
+            });
+            World.add(world, doorBody);
+
+            houses.set(id, {
+                element: el,
+                door: doorBody,
+                exitPos: { x, y: y + height/2 - 30 },
+                interiorPos
+            });
+        }
+        
         // --- Player Management ---
         function createPlayer(peerId, username, position) {
             if (players.has(peerId)) return;
             
+            const collisionGroup = Body.nextGroup(true);
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1
+                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                collisionFilter: { group: collisionGroup }, // Players are in their own group
+                label: `player_${peerId}`
             });
             World.add(world, playerBody);
 
@@ -511,7 +589,9 @@
                 isTransformed: false, 
                 isIdle: true, 
                 isWalking: false,
-                direction: 'right' // Start facing right
+                onGround: false,
+                direction: 'right',
+                inHouse: null
             });
         }
 
@@ -536,9 +616,9 @@
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
                 
                 const speed = Vector.magnitude(player.body.velocity);
-                const onGround = Math.abs(player.body.velocity.y) < 0.1;
-                player.isIdle = speed < 0.5 && onGround;
-                player.isWalking = speed >= 0.5 && onGround;
+                player.onGround = Math.abs(player.body.velocity.y) < 0.1;
+                player.isIdle = speed < 0.5 && player.onGround;
+                player.isWalking = speed >= 0.5 && player.onGround;
                 player.direction = data.direction || 'right';
 
                 if (player.isTransformed !== data.isTransformed) {
@@ -562,10 +642,8 @@
 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
-                // Apply rotation to the main container
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
                 
-                // Apply flip only to the sprite image
                 const sprite = player.element.querySelector('.player-sprite');
                 if (sprite) {
                     const scaleX = player.direction === 'left' ? -1 : 1;
@@ -586,16 +664,18 @@
             
             if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
-                    frictionAir: 0.005, friction: 0.01, restitution: 0.5
+                    frictionAir: 0.005, friction: 0.01, restitution: 0.5,
+                    collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '50%';
-                if(sprite) sprite.style.display = 'none'; // Hide sprite when in ball form
+                if(sprite) sprite.style.display = 'none';
             } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
-                    inertia: Infinity, frictionAir: 0.02, friction: 0.1
+                    inertia: Infinity, frictionAir: 0.02, friction: 0.1,
+                    collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '4px';
-                if(sprite) sprite.style.display = 'block'; // Show sprite
+                if(sprite) sprite.style.display = 'block';
             }
             
             Body.setVelocity(newBody, oldBody.velocity);
@@ -625,13 +705,12 @@
         function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
         function handleKeyUp(e) { keys[e.code] = false; }
         
-        // Handles continuous input like movement
         function processPlayerInput() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isTransformed) return;
 
             const body = myPlayer.body;
-            const onGround = Math.abs(body.velocity.y) < 0.1;
+            myPlayer.onGround = Math.abs(body.velocity.y) < 0.1;
 
             const moveSpeed = 5;
             let targetVelocityX = 0;
@@ -644,10 +723,9 @@
                 myPlayer.direction = 'right';
             }
             
-            if (onGround) {
+            if (myPlayer.onGround) {
                 Body.setVelocity(body, { x: targetVelocityX, y: body.velocity.y });
             } else {
-                // Allow some air control but less than ground
                 const airForce = 0.005;
                  if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.applyForce(body, body.position, { x: -airForce, y: 0 });
@@ -657,15 +735,13 @@
             }
         }
 
-        // Handles single-press actions like jumping
         function handleSinglePressInput(e) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
             const body = myPlayer.body;
 
-            if (e.code === 'Space') {
-                const onGround = Math.abs(body.velocity.y) < 0.1;
-                if (!isTransformed && onGround) {
+            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+                if (!isTransformed && myPlayer.onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
                 }
             }
@@ -673,6 +749,44 @@
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
+
+            if (e.code === 'KeyE') {
+                if (myPlayer.inHouse) {
+                    const house = houses.get(myPlayer.inHouse);
+                    Body.setPosition(body, house.exitPos);
+                    myPlayer.inHouse = null;
+                } else {
+                    for (const [id, house] of houses.entries()) {
+                         const collisions = Detector.collisions([[body, house.door]], engine);
+                         if (collisions.length > 0) {
+                             Body.setPosition(body, house.interiorPos);
+                             myPlayer.inHouse = id;
+                             break;
+                         }
+                    }
+                }
+            }
+        }
+
+        function checkPlayerInteractions() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+            
+            const allBodies = Composite.allBodies(world);
+            const collisions = Detector.collisions([[myPlayer.body, ...allBodies]], engine);
+
+            for (const collision of collisions) {
+                const otherLabel = collision.bodyA.label === myPlayer.body.label ? collision.bodyB.label : collision.bodyA.label;
+                if (otherLabel.startsWith('lava')) {
+                    respawnPlayer(myPlayer);
+                }
+            }
+        }
+
+        function respawnPlayer(player) {
+            const spawnPoint = { x: worldWidth / 2, y: worldHeight - 200 };
+            Body.setPosition(player.body, spawnPoint);
+            Body.setVelocity(player.body, {x: 0, y: 0});
         }
 
         function startAnimationLoop() {
@@ -686,14 +800,12 @@
                 idleTimer += loopTime;
                 walkTimer += loopTime;
 
-                // Update idle animation at 2 FPS (500ms per frame)
-                if (idleTimer >= 500) {
+                if (idleTimer >= 500) { // 2 FPS
                     idleFrame = (idleFrame + 1) % 2;
                     idleTimer = 0;
                 }
                 
-                // Update walk animation at 4 FPS (250ms per frame)
-                if (walkTimer >= 250) {
+                if (walkTimer >= 250) { // 4 FPS
                     walkFrame = (walkFrame + 1) % 4;
                     walkTimer = 0;
                 }
