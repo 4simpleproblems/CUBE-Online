@@ -40,6 +40,10 @@
             overflow: hidden;
             cursor: default;
         }
+
+        #game-viewport.screenshake {
+             animation: screen-shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
         
         #world-container {
             position: absolute;
@@ -74,12 +78,10 @@
 
         .respawn-particle {
             position: absolute;
-            width: 12px;
-            height: 12px;
             background-color: black;
             pointer-events: none;
             z-index: 20;
-            animation: spurt 0.7s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
+            animation: spurt 0.8s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
         }
 
         .spawn-in-particle {
@@ -94,8 +96,21 @@
         }
         
         @keyframes spurt {
-            0% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(0) translate(var(--translateX), var(--translateY)); opacity: 0; }
+            0% {
+                transform: scale(var(--start-scale, 1)) rotate(0deg);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0) translate(var(--translateX), var(--translateY)) rotate(720deg);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes screen-shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
         }
 
         @keyframes converge {
@@ -127,7 +142,7 @@
         .player-sprite.front { transform: rotateY(0deg); }
         .player-sprite.back { transform: rotateY(180deg) scaleX(-1); }
         
-        .player-name {
+        .player-name, .npc-name {
             position: absolute;
             top: -25px;
             left: 50%;
@@ -481,6 +496,7 @@
         const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
         let engine, world, runner;
         const players = new Map();
+        const npcs = new Map();
         const gameObjects = new Map();
         const worldWidth = 50000;
         const worldHeight = 10000;
@@ -538,7 +554,7 @@
                 lockLoginInputs();
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
-                initializePeer(sessionData.username, isHost ? LOBBY_PREFIX + lobbyCode : null);
+                initializePeer(sessionData.username);
                 return;
             }
             const params = new URLSearchParams(window.location.search);
@@ -590,80 +606,76 @@
             }
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
+                const sessionData = { username, lobbyCode, isHost };
+                sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+                updateUrlWithLobbyCode(lobbyCode);
+                lockLoginInputs();
+                showLoadingScreen(isCreating);
+                initializePeer(username);
             } else {
                 lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
                 if (!lobbyCode || lobbyCode.length !== 8) {
                     showMessage('Please enter a valid 8-digit lobby code.');
                     return;
                 }
+                showLoadingScreen(isCreating);
+                initializePeer(username);
             }
-            lockLoginInputs();
-            const sessionData = { username, lobbyCode, isHost };
-            sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
-            updateUrlWithLobbyCode(lobbyCode);
-            showLoadingScreen(isCreating);
-            initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
-        function initializePeer(username, requestedId) {
+        function initializePeer(username) {
             if (peer) peer.destroy();
-            peer = new Peer(requestedId, {});
+            const peerId = isHost ? LOBBY_PREFIX + lobbyCode : null;
+            peer = new Peer(peerId, {});
+
             peer.on('open', id => {
                 myPeerId = id;
-                loadingView.classList.add('hidden');
-                gameUi.classList.remove('hidden');
-                initPhysics();
-                createWorld();
-                const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
-                createPlayer(myPeerId, username, startPos);
-                setupInputControls();
-                startAnimationLoop();
                 if (isHost) {
-                    document.getElementById('lobby-code-display').textContent = lobbyCode;
-                    hostInfoDiv.classList.remove('hidden');
-                    updateLobbyControls();
+                    startGame(username);
                 } else {
-                    connectToPeer(LOBBY_PREFIX + lobbyCode);
+                    const hostPeerId = LOBBY_PREFIX + lobbyCode;
+                    const conn = peer.connect(hostPeerId, { reliable: true });
+                    connections.set(hostPeerId, conn);
+                    setupConnection(conn, username);
                 }
             });
-            peer.on('connection', setupConnection);
+            peer.on('connection', conn => setupConnection(conn));
             peer.on('error', handleError);
         }
+        
+        function startGame(username) {
+             loadingView.classList.add('hidden');
+             gameUi.classList.remove('hidden');
+             initPhysics();
+             createWorld();
+             spawnNPCs();
+             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
+             createPlayer(myPeerId, username, startPos);
+             setupInputControls();
+             startAnimationLoop();
 
-        function setupConnection(conn) {
-            conn.on('open', () => {
-                connections.set(conn.peer, conn);
-                if (isHost) {
-                    updateLobbyControls();
-                    const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
-                    conn.send({ type: 'lobby-roster', peers: allPeerIds });
-                    broadcast({ type: 'new-peer-announcement', peerId: conn.peer }, conn.peer);
-                }
-                const myPlayer = players.get(myPeerId);
-                conn.send({
-                    type: 'player-update',
-                    peerId: myPeerId,
-                    username: myPlayer.username,
-                    position: myPlayer.body.position,
-                    isTransformed: myPlayer.isTransformed,
-                    direction: myPlayer.direction
-                });
-            });
-            conn.on('data', handleData);
-            conn.on('close', () => handleDisconnect(conn.peer));
+             if (isHost) {
+                 document.getElementById('lobby-code-display').textContent = lobbyCode;
+                 hostInfoDiv.classList.remove('hidden');
+                 updateLobbyControls();
+             }
         }
 
+        function setupConnection(conn, clientUsername) {
+            conn.on('open', () => {
+                if (!isHost && clientUsername) { 
+                    conn.send({ type: 'request-to-join', username: clientUsername });
+                }
+            });
+            conn.on('data', (data) => handleData(data, conn));
+            conn.on('close', () => handleDisconnect(conn.peer));
+        }
+        
         function handleDisconnect(peerId) {
             connections.delete(peerId);
             removePlayer(peerId);
             if (isHost) updateLobbyControls();
             broadcast({ type: 'player-leave', peerId });
-        }
-
-        function connectToPeer(peerId) {
-            if (!connections.has(peerId) && peerId !== myPeerId) {
-                setupConnection(peer.connect(peerId));
-            }
         }
 
         function leaveLobby() {
@@ -672,6 +684,7 @@
             if (engine) Engine.clear(engine);
             if (animationInterval) clearInterval(animationInterval);
             players.clear();
+            npcs.clear();
             connections.clear();
             gameObjects.clear();
             worldContainer.innerHTML = '';
@@ -686,13 +699,64 @@
             showMainView();
         }
 
-        function handleData(data, peerId) {
+        function handleData(data, conn) {
+            // HOST-SIDE LOGIC
+            if (isHost) {
+                const peerId = conn.peer;
+                switch(data.type) {
+                    case 'request-to-join':
+                        const isUsernameTaken = Array.from(players.values()).some(p => p.username === data.username);
+                        if (isUsernameTaken) {
+                            conn.send({ type: 'reject-join', reason: 'Username is taken.' });
+                        } else {
+                            const currentPlayers = Array.from(players.values()).map(p => ({
+                                peerId: p.peerId,
+                                username: p.username,
+                                position: p.body.position,
+                                isTransformed: p.isTransformed,
+                                direction: p.direction
+                            }));
+                            conn.send({ type: 'approve-join', roster: currentPlayers, peerId: peerId });
+                            connections.set(peerId, conn);
+                            updateLobbyControls();
+                        }
+                        break;
+                     case 'player-update':
+                        updatePlayer(data);
+                        broadcast(data, peerId);
+                        break;
+                     case 'respawn-explosion':
+                        broadcast(data, peerId); 
+                        break;
+                }
+                return;
+            }
+
+            // CLIENT-SIDE LOGIC
             switch (data.type) {
+                case 'approve-join':
+                    const username = document.getElementById('username-join').value.trim();
+                    const sessionData = { username, lobbyCode, isHost: false };
+                    sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
+                    updateUrlWithLobbyCode(lobbyCode);
+                    lockLoginInputs();
+                    startGame(username);
+                    data.roster.forEach(pData => createPlayer(pData.peerId, pData.username, pData.position));
+                    if (isHost) { // Host needs to add the new player too
+                         const newPlayerData = { peerId: data.peerId, username: data.username, position: { x: worldWidth / 2, y: worldHeight - 200 } };
+                         createPlayer(newPlayerData.peerId, newPlayerData.username, newPlayerData.position);
+                         broadcast({ type: 'player-update', ...newPlayerData, velocity: {x:0,y:0} }, newPlayerData.peerId);
+                    }
+                    break;
+                case 'reject-join':
+                    showMessage(data.reason);
+                    leaveLobby();
+                    break;
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
                 case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
-                case 'lobby-roster': data.peers.forEach(connectToPeer); break;
-                case 'new-peer-announcement': connectToPeer(data.peerId); break;
+                case 'new-peer-announcement': createPlayer(data.peerId, data.username, data.position); break;
+                case 'respawn-explosion': createRespawnParticles(data.position); break;
             }
         }
 
@@ -709,11 +773,11 @@
             runner = Runner.create();
             Runner.run(runner, engine);
             let lastTime = performance.now();
-            Events.on(engine, 'afterUpdate', (event) => {
-                const currentTime = performance.now();
-                const deltaTime = currentTime - lastTime;
-                lastTime = currentTime;
+            Events.on(engine, 'afterUpdate', () => {
+                const deltaTime = performance.now() - lastTime;
+                lastTime = performance.now();
                 processPlayerInput(deltaTime);
+                updateNPCs(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
@@ -721,25 +785,26 @@
                 updatePlayerLayering();
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
-                    broadcast({
-                        type: 'player-update',
-                        peerId: myPeerId,
-                        position: myPlayer.body.position,
-                        velocity: myPlayer.body.velocity,
-                        isTransformed: myPlayer.isTransformed,
-                        direction: myPlayer.direction
-                    });
+                    const data = {
+                        type: 'player-update', peerId: myPeerId,
+                        position: myPlayer.body.position, velocity: myPlayer.body.velocity,
+                        isTransformed: myPlayer.isTransformed, direction: myPlayer.direction
+                    };
+                    isHost ? broadcast(data) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(data);
                 }
             });
             Events.on(engine, 'collisionStart', (event) => {
-                const pairs = event.pairs;
-                for (const pair of pairs) {
+                for (const pair of event.pairs) {
                     const playerBody = getPlayerBodyFromPair(pair);
-                    if (!playerBody) continue;
-                    const player = players.get(playerBody.label.split('_')[1]);
-                    if (!player) continue;
-                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
-                        player.onGround = true;
+                    if (playerBody) {
+                        const player = players.get(playerBody.label.split('_')[1]);
+                        if(player) player.onGround = true;
+                    }
+
+                    const npcBody = pair.bodyA.label.startsWith('npc_') ? pair.bodyA : (pair.bodyB.label.startsWith('npc_') ? pair.bodyB : null);
+                    if (npcBody) {
+                         const npc = npcs.get(npcBody.label.split('_')[1]);
+                         if(npc) npc.onGround = true;
                     }
                 }
             });
@@ -763,50 +828,36 @@
             worldContainer.appendChild(el);
             gameObjects.set(id, { body, element: el });
         }
+        
+        function getPlayerBodyFromPair(pair) {
+             if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
+             if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
+             return null;
+        }
 
-        function createPlayer(peerId, username, position, isInitialSpawn = false) {
+        function createPlayer(peerId, username, position) {
             if (players.has(peerId)) return;
-            const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity,
-                frictionAir: 0.02,
-                friction: 0.1,
-                collisionFilter: { group: -1 },
-                label: `player_${peerId}`
-            });
+            const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, { inertia: Infinity, frictionAir: 0.02, friction: 0.1, collisionFilter: { group: -1 }, label: `player_${peerId}`});
             World.add(world, playerBody);
             const playerEl = document.createElement('div');
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `
-                <div class="player-sprite-wrapper">
-                    <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
-                    <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
-                </div>
-                <div class="player-name">${username}</div>`;
-            if (!isInitialSpawn) {
-                playerEl.style.opacity = '0';
-            }
+            playerEl.innerHTML = `<div class="player-sprite-wrapper"><img src="./images/player-idle1.png" class="player-sprite front"><img src="./images/player-idle1.png" class="player-sprite back"></div><div class="player-name">${username}</div>`;
             worldContainer.appendChild(playerEl);
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
             indicatorEl.className = 'off-screen-indicator';
             indicatorEl.style.opacity = '0';
-            indicatorEl.innerHTML = `
-                <div class="off-screen-arrow"></div>
-                <div class="off-screen-name">${username}</div>`;
+            indicatorEl.innerHTML = `<div class="off-screen-arrow"></div><div class="off-screen-name">${username}</div>`;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
             const player = {
-                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false,
-                isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
-                isSprinting: false, maxStamina: 100, currentStamina: 100,
-                staminaDrainRate: 25, staminaRegenRate: 15,
-                lastMoveTimestamp: Date.now(),
-                sideLock: false,
-                sprintModeActive: false
+                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, isIdle: true, isWalking: false,
+                onGround: false, direction: 'right', isDead: false, isSprinting: false, maxStamina: 100, currentStamina: 100, staminaDrainRate: 25,
+                staminaRegenRate: 15, lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false
             };
             players.set(peerId, player);
-            if (!isInitialSpawn) {
-                setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
+            if(peerId === myPeerId && !isHost){
+                 broadcast({ type: 'new-peer-announcement', peerId: myPeerId, username: username, position: position });
             }
         }
 
@@ -820,39 +871,88 @@
             }
         }
 
-        function updatePlayer(data) {
-            let player = players.get(data.peerId);
-            if (!player) {
-                createPlayer(data.peerId, data.username, data.position, true);
-                player = players.get(data.peerId);
-            }
-            if (player && player.body && !player.isDead) {
-                Body.setPosition(player.body, data.position);
-                Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
-                if (player.direction !== data.direction) {
-                    player.direction = data.direction || 'right';
-                }
-                if (player.isTransformed !== data.isTransformed) {
-                    togglePlayerTransformation(player, data.isTransformed);
-                }
-            }
+        function createNPC(name, position) {
+            const npcBody = Bodies.rectangle(position.x, position.y, 40, 60, { inertia: Infinity, frictionAir: 0.02, friction: 0.1, label: `npc_${name}`});
+            World.add(world, npcBody);
+            const npcEl = document.createElement('div');
+            npcEl.id = `npc-el-${name}`;
+            npcEl.className = 'game-object player-object';
+            npcEl.innerHTML = `<div class="player-sprite-wrapper"><img src="./images/player-idle1.png" class="player-sprite front"><img src="./images/player-idle1.png" class="player-sprite back"></div><div class="npc-name">[NPC] ${name}</div>`;
+            worldContainer.appendChild(npcEl);
+            const npc = {
+                name, body: npcBody, element: npcEl, onGround: true, direction: 'left', isWalking: false,
+                aiState: 'patrolling', aiTimer: Math.random() * 5 + 5,
+                patrolStartX: position.x, patrolRange: 200 + Math.random() * 300
+            };
+            npcs.set(name, npc);
         }
 
+        function spawnNPCs() {
+            const npcNames = ['Bob', 'John', 'Timmy', 'Alice', 'Kate'];
+            npcNames.forEach((name, index) => {
+                const x = worldWidth/2 + (index - npcNames.length/2) * 500 + (Math.random() * 200 - 100);
+                const y = worldHeight - 200;
+                createNPC(name, {x, y});
+            });
+        }
+        
+        function updateNPCs(deltaTime) {
+            const dtSeconds = deltaTime / 1000;
+            for (const npc of npcs.values()) {
+                npc.aiTimer -= dtSeconds;
+
+                if (npc.aiTimer <= 0) {
+                    const prevState = npc.aiState;
+                    if (prevState === 'patrolling' || prevState === 'jumping') {
+                        npc.aiState = 'idling';
+                        npc.aiTimer = Math.random() * 2 + 1;
+                    } else {
+                        npc.aiState = Math.random() > 0.3 ? 'patrolling' : 'jumping';
+                        npc.aiTimer = Math.random() * 5 + 5;
+                    }
+                }
+
+                let targetVelX = 0;
+                npc.isWalking = false;
+
+                if (npc.aiState === 'patrolling') {
+                    const patrolTargetX = npc.direction === 'left' ? npc.patrolStartX - npc.patrolRange/2 : npc.patrolStartX + npc.patrolRange/2;
+                    if ( (npc.direction === 'left' && npc.body.position.x < patrolTargetX) || (npc.direction === 'right' && npc.body.position.x > patrolTargetX) ) {
+                        npc.direction = (npc.direction === 'left' ? 'right' : 'left');
+                    }
+                    targetVelX = npc.direction === 'left' ? -2 : 2;
+                    npc.isWalking = true;
+                } else if (npc.aiState === 'jumping') {
+                    if (npc.onGround) {
+                        Body.applyForce(npc.body, npc.body.position, { x: 0, y: -0.1 });
+                        npc.onGround = false;
+                    }
+                }
+                
+                if (npc.onGround && npc.body.velocity.x !== targetVelX) Body.setVelocity(npc.body, { x: targetVelX, y: npc.body.velocity.y });
+                
+                const spriteWrapper = npc.element.querySelector('.player-sprite-wrapper');
+                spriteWrapper.style.transform = `rotateY(${npc.direction === 'left' ? 180 : 0}deg)`;
+                const sprites = npc.element.querySelectorAll('.player-sprite');
+                sprites[0].src = npc.isWalking ? './images/player-walk1.png' : './images/player-idle1.png';
+                sprites[1].src = npc.isWalking ? './images/player-walk1.png' : './images/player-idle1.png';
+            }
+        }
+        
         function updatePlayerElements() {
-            for (const player of players.values()) {
+             for (const player of players.values()) {
                 if (!player.body) continue;
                 const { position, angle } = player.body;
-                if (!player.isTransformed) {
-                    player.element.style.width = '40px';
-                    player.element.style.height = '60px';
-                } else {
-                    const diameter = 25 * 2;
-                    player.element.style.width = `${diameter}px`;
-                    player.element.style.height = `${diameter}px`;
-                }
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+            }
+             for (const npc of npcs.values()) {
+                if (!npc.body) continue;
+                const { position, angle } = npc.body;
+                npc.element.style.left = `${position.x}px`;
+                npc.element.style.top = `${position.y}px`;
+                npc.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
             }
         }
 
@@ -873,17 +973,11 @@
             let newBody;
             const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
             if (shouldBeTransformed) {
-                newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
-                    frictionAir: 0.005, friction: 0.01, restitution: 0.5,
-                    collisionFilter: oldBody.collisionFilter, label: oldBody.label
-                });
+                newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, { frictionAir: 0.005, friction: 0.01, restitution: 0.5, collisionFilter: oldBody.collisionFilter, label: oldBody.label });
                 player.element.style.borderRadius = '50%';
                 if (spriteWrapper) spriteWrapper.style.display = 'none';
             } else {
-                newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
-                    inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                    collisionFilter: oldBody.collisionFilter, label: oldBody.label
-                });
+                newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, { inertia: Infinity, frictionAir: 0.02, friction: 0.1, collisionFilter: oldBody.collisionFilter, label: oldBody.label });
                 player.element.style.borderRadius = '0';
                 if (spriteWrapper) spriteWrapper.style.display = 'block';
             }
@@ -1180,24 +1274,33 @@
             }, loopTime);
         }
 
-        function getPlayerBodyFromPair(pair) {
-            if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
-            if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
-            return null;
+        function triggerScreenShake() {
+            gameViewport.classList.add('screenshake');
+            setTimeout(() => gameViewport.classList.remove('screenshake'), 400);
         }
 
         function createRespawnParticles(position) {
-            for (let i = 0; i < 30; i++) {
+            const particleCount = 50;
+            for (let i = 0; i < particleCount; i++) {
                 const particle = document.createElement('div');
                 particle.className = 'respawn-particle';
                 const angle = Math.random() * 2 * Math.PI;
-                const distance = Math.random() * 100 + 50;
+                const distance = 50 + Math.random() * 120;
+                const size = 5 + Math.random() * 15;
+                
                 particle.style.setProperty('--translateX', `${Math.cos(angle) * distance}px`);
                 particle.style.setProperty('--translateY', `${Math.sin(angle) * distance}px`);
+                particle.style.setProperty('--start-scale', `${0.5 + Math.random() * 0.5}`);
+                
+                particle.style.width = `${size}px`;
+                particle.style.height = `${size}px`;
+                particle.style.backgroundColor = `hsl(0, 0%, ${Math.random() * 20}%)`;
+                if(Math.random() > 0.5) particle.style.borderRadius = '50%';
+                
                 particle.style.left = `${position.x}px`;
                 particle.style.top = `${position.y}px`;
                 worldContainer.appendChild(particle);
-                setTimeout(() => particle.remove(), 700);
+                setTimeout(() => particle.remove(), 800);
             }
         }
 
@@ -1224,12 +1327,21 @@
         function respawnPlayer() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
+
+            triggerScreenShake();
+            
             const oldPosition = { ...myPlayer.body.position };
             const currentUsername = myPlayer.username;
+            
+            const respawnData = { type: 'respawn-explosion', position: oldPosition };
+            isHost ? broadcast(respawnData) : connections.get(LOBBY_PREFIX + lobbyCode)?.send(respawnData);
             createRespawnParticles(oldPosition);
+            
             removePlayer(myPeerId);
+            
             worldContainer.style.transition = 'transform 2s ease-in-out';
             camera.targetScale = 0.5;
+            
             setTimeout(() => {
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
