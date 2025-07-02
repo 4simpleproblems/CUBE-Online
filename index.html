@@ -56,27 +56,65 @@
         .player-object {
             background-color: transparent; /* Player container is invisible */
             border: none; /* No border for the player container itself */
-            transition: border-radius 0.2s ease, opacity 0.2s ease;
+            transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s; /* Added delay for fade in */
             z-index: 10;
+            transform-style: preserve-3d;
         }
 
-        .death-particle, .wind-particle {
+        .wind-particle {
             position: absolute;
             border-radius: 50%;
             pointer-events: none;
             z-index: 15;
-        }
-        .death-particle {
-            background-color: #333;
-            width: 5px;
-            height: 5px;
-        }
-        .wind-particle {
             background-color: rgba(0, 0, 0, 0.5);
             width: 8px;
             height: 8px;
             animation: fadeOut 0.5s forwards;
         }
+
+        .respawn-particle {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            background-color: black;
+            pointer-events: none;
+            z-index: 20;
+            animation: spurt 0.7s cubic-bezier(0.2, 1.5, 0.5, 1) forwards;
+        }
+
+        .spawn-in-particle {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: black;
+            pointer-events: none;
+            z-index: 20;
+            animation: converge forwards;
+            animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.2); /* Ease-in curve */
+        }
+        
+        @keyframes spurt {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(0) translate(var(--translateX), var(--translateY));
+                opacity: 0;
+            }
+        }
+
+        @keyframes converge {
+            from {
+                transform: translate(var(--translateX), var(--translateY)) scale(1.5);
+                opacity: 1;
+            }
+            to {
+                transform: translate(0, 0) scale(0);
+                opacity: 0.5;
+            }
+        }
+
         @keyframes fadeOut {
             to {
                 opacity: 0;
@@ -84,11 +122,29 @@
             }
         }
 
+        .player-sprite-wrapper {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transition: transform 0.4s;
+        }
+        
         .player-sprite {
             width: 100%;
             height: 100%;
             object-fit: contain;
             image-rendering: pixelated;
+            position: absolute;
+            backface-visibility: hidden;
+        }
+
+        .player-sprite.front {
+            transform: rotateY(0deg);
+        }
+        
+        .player-sprite.back {
+            transform: rotateY(180deg) scaleX(-1);
         }
         
         .player-name {
@@ -384,11 +440,11 @@
         </div>
         
         <div id="join-view" class="ui-view hidden">
-             <h1>Join a Lobby</h1>
-             <input type="text" id="username-join" class="input-field" placeholder="Enter Username">
-             <input type="text" id="lobby-code-input" class="input-field" placeholder="Enter 8-Digit Code">
-             <button id="join-lobby-btn" class="btn">Join</button>
-             <button id="back-to-main-btn" class="btn btn-secondary">Back</button>
+              <h1>Join a Lobby</h1>
+              <input type="text" id="username-join" class="input-field" placeholder="Enter Username">
+              <input type="text" id="lobby-code-input" class="input-field" placeholder="Enter 8-Digit Code">
+              <button id="join-lobby-btn" class="btn">Join</button>
+              <button id="back-to-main-btn" class="btn btn-secondary">Back</button>
         </div>
 
         <div id="loading-view" class="ui-view hidden">
@@ -581,7 +637,7 @@
         }
 
         // --- Physics & Game World ---
-        let camera = { x: 0, y: 0 };
+        let camera = { x: 0, y: 0, scale: 1, targetScale: 1};
         function initPhysics() {
             engine = Engine.create({ gravity: { y: 1 } });
             world = engine.world;
@@ -599,10 +655,11 @@
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
+                updatePlayerLayering(); // New call for layering
 
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
-                     broadcast({
+                    broadcast({
                         type: 'player-update',
                         peerId: myPeerId,
                         position: myPlayer.body.position,
@@ -650,13 +707,12 @@
         }
         
         // --- Player Management ---
-        function createPlayer(peerId, username, position) {
+        function createPlayer(peerId, username, position, isInitialSpawn = false) {
             if (players.has(peerId)) return;
             
-            const collisionGroup = Body.nextGroup(true);
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: collisionGroup },
+                collisionFilter: { group: -1 }, // Players are in a non-colliding group
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
@@ -665,10 +721,18 @@
             playerEl.id = `player-el-${peerId}`;
             playerEl.className = 'game-object player-object';
             playerEl.innerHTML = `
-                <img src="../images/player-idle1.png" class="player-sprite" alt="Player">
+                <div class="player-sprite-wrapper">
+                    <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
+                    <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
+                </div>
                 <div class="player-name">${username}</div>
             `;
+            // If not the initial spawn (i.e., a respawn), start transparent
+            if (!isInitialSpawn) {
+                playerEl.style.opacity = '0';
+            }
             worldContainer.appendChild(playerEl);
+
 
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
@@ -680,12 +744,22 @@
             `;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
             
-            players.set(peerId, { 
+            const player = { 
                 peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username, isTransformed: false, 
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false,
                 isSprinting: false, maxStamina: 100, currentStamina: 100, 
-                staminaDrainRate: 25, staminaRegenRate: 15
-            });
+                staminaDrainRate: 25, staminaRegenRate: 15,
+                lastMoveTimestamp: Date.now(), // For layering
+                sideLock: false // For side locking
+            };
+            players.set(peerId, player);
+
+            // Force the opacity to 1 after a short delay to trigger the transition
+             if (!isInitialSpawn) {
+                 setTimeout(() => {
+                     playerEl.style.opacity = '1';
+                 }, 100);
+            }
         }
 
         function removePlayer(peerId) {
@@ -701,14 +775,21 @@
         function updatePlayer(data) {
             let player = players.get(data.peerId);
             if (!player) {
-                createPlayer(data.peerId, data.username, data.position);
+                createPlayer(data.peerId, data.username, data.position, true);
                 player = players.get(data.peerId);
             }
             
             if (player && player.body && !player.isDead) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
-                player.direction = data.direction || 'right';
+
+                if (player.direction !== data.direction) {
+                    player.direction = data.direction || 'right';
+                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+                    if (spriteWrapper) {
+                        spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+                    }
+                }
 
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
@@ -733,13 +814,21 @@
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
-                
-                const sprite = player.element.querySelector('.player-sprite');
-                if (sprite) {
-                    const scaleX = player.direction === 'left' ? -1 : 1;
-                    sprite.style.transform = `scaleX(${scaleX})`;
-                }
             }
+        }
+
+        // New function to handle player z-index layering
+        function updatePlayerLayering() {
+            const sortedPlayers = Array.from(players.values()).sort((a, b) => {
+                return a.lastMoveTimestamp - b.lastMoveTimestamp;
+            });
+
+            sortedPlayers.forEach((player, index) => {
+                if (player.element) {
+                    // Start z-index from 10. Player who moved most recently (highest timestamp) will get the lowest z-index
+                    player.element.style.zIndex = 10 + index;
+                }
+            });
         }
         
         function togglePlayerTransformation(player, forceState) {
@@ -750,7 +839,7 @@
             
             const oldBody = player.body;
             let newBody;
-            const sprite = player.element.querySelector('.player-sprite');
+            const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
             
             if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
@@ -758,14 +847,14 @@
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '50%';
-                if(sprite) sprite.style.display = 'none';
+                if(spriteWrapper) spriteWrapper.style.display = 'none';
             } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
                     inertia: Infinity, frictionAir: 0.02, friction: 0.1,
                     collisionFilter: oldBody.collisionFilter, label: oldBody.label
                 });
                 player.element.style.borderRadius = '0';
-                if(sprite) sprite.style.display = 'block';
+                if(spriteWrapper) spriteWrapper.style.display = 'block';
             }
             
             Body.setVelocity(newBody, oldBody.velocity);
@@ -785,14 +874,16 @@
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
+
+            camera.scale += (camera.targetScale - camera.scale) * 0.1;
             
-            const targetX = -x + viewportWidth / 2;
-            const targetY = -y + viewportHeight / 2;
+            const targetX = -x * camera.scale + viewportWidth / 2;
+            const targetY = -y * camera.scale + viewportHeight / 2;
             
             camera.x = x;
             camera.y = y;
 
-            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${camera.scale})`;
         }
 
         function updateOffScreenIndicators() {
@@ -868,10 +959,14 @@
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
 
+            if (isMovingHorizontally) {
+                myPlayer.lastMoveTimestamp = Date.now();
+            }
+
             myPlayer.isSprinting = false; // Reset every frame
 
             if (myPlayer.isTransformed) {
-                 const moveForce = 0.001;
+                const moveForce = 0.001;
                 if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
                 if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
                 if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
@@ -895,10 +990,10 @@
 
                 if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
-                    myPlayer.direction = 'left';
+                    if (!myPlayer.sideLock) myPlayer.direction = 'left';
                 } else if (keys['KeyD'] || keys['ArrowRight']) {
                     Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
-                    myPlayer.direction = 'right';
+                    if (!myPlayer.sideLock) myPlayer.direction = 'right';
                 } else if (myPlayer.onGround) {
                     Body.setVelocity(body, { x: 0, y: body.velocity.y });
                 }
@@ -912,19 +1007,25 @@
 
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 if (!isTransformed && myPlayer.onGround) {
-                     // Reduced jump force
-                     Body.applyForce(body, body.position, { x: 0, y: -0.15 });
-                     myPlayer.onGround = false;
+                    // Reduced jump force
+                    Body.applyForce(body, body.position, { x: 0, y: -0.1 });
+                    myPlayer.onGround = false;
                 }
             }
             
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
+            if (e.code === 'KeyR') {
+                respawnPlayer();
+            }
+            if (e.code === 'KeyL') {
+                myPlayer.sideLock = !myPlayer.sideLock; // Toggle side lock
+            }
         }
 
         function setupMobileControls() {
-             // Mobile controls logic can be expanded here
+            // Mobile controls logic can be expanded here
         }
 
         function createWindParticle(position, direction, isMyPlayer) {
@@ -962,8 +1063,14 @@
                     player.isWalking = speed > 0.5; 
                     player.isIdle = player.onGround && !player.isWalking;
 
-                    const sprite = player.element.querySelector('.player-sprite');
-                    if (!sprite) continue;
+                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+                    if (!spriteWrapper) continue;
+
+                    // Update sprite direction
+                    spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+
+                    const sprites = player.element.querySelectorAll('.player-sprite');
+                    if(sprites.length < 2) continue;
 
                     let currentFps = IDLE_FPS;
                     if (player.isSprinting) {
@@ -983,11 +1090,15 @@
                         animTimer = 0; // Reset timer only when frame changes
                     }
 
+                    let currentSpritePath;
                     if (player.isSprinting || player.isWalking) {
-                        sprite.src = `../images/player-walk${walkFrame + 1}.png`;
+                        currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
                     } else { // isIdle
-                        sprite.src = `../images/player-idle${idleFrame + 1}.png`;
+                        currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
                     }
+
+                    sprites[0].src = currentSpritePath;
+                    sprites[1].src = currentSpritePath;
                     
                     // This creates glide particles when falling, separate from animation
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
@@ -1002,6 +1113,81 @@
             if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
             if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
             return null;
+        }
+
+        function createRespawnParticles(position) {
+            for (let i = 0; i < 30; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'respawn-particle';
+                const angle = Math.random() * 2 * Math.PI;
+                const distance = Math.random() * 100 + 50; // Increased distance for a bigger explosion
+                particle.style.setProperty('--translateX', `${Math.cos(angle) * distance}px`);
+                particle.style.setProperty('--translateY', `${Math.sin(angle) * distance}px`);
+                particle.style.left = `${position.x}px`;
+                particle.style.top = `${position.y}px`;
+                worldContainer.appendChild(particle);
+                setTimeout(() => particle.remove(), 700);
+            }
+        }
+
+        function createSpawnInParticles(position) {
+            const particleCount = 40;
+            for (let i = 0; i < particleCount; i++) {
+                const particle = document.createElement('div');
+                particle.className = 'spawn-in-particle';
+
+                const angle = Math.random() * 2 * Math.PI;
+                const initialDist = Math.random() * 200 + 100; // Start further out
+                
+                const startX = Math.cos(angle) * initialDist;
+                const startY = Math.sin(angle) * initialDist;
+
+                particle.style.setProperty('--translateX', `${startX}px`);
+                particle.style.setProperty('--translateY', `${startY}px`);
+
+                // Particles that start further away get a slightly longer animation duration,
+                // making them appear to move faster to catch up.
+                const duration = 0.5 + (initialDist / 300) * 0.3; // Base duration + distance factor
+                particle.style.animationDuration = `${duration}s`;
+
+                particle.style.left = `${position.x}px`;
+                particle.style.top = `${position.y}px`;
+                
+                worldContainer.appendChild(particle);
+                setTimeout(() => particle.remove(), duration * 1000);
+            }
+        }
+
+        function respawnPlayer() {
+            const myPlayer = players.get(myPeerId);
+            if (!myPlayer) return;
+
+            const oldPosition = { ...myPlayer.body.position };
+            const currentUsername = myPlayer.username; // Save username before removing
+            
+            createRespawnParticles(oldPosition);
+            
+            removePlayer(myPeerId);
+            
+            worldContainer.style.transition = 'transform 2s ease-in-out';
+            camera.targetScale = 0.5;
+            
+            setTimeout(() => {
+                const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200};
+                
+                // Spawn-in particle effect
+                createSpawnInParticles(newSpawnPosition);
+
+                setTimeout(() => {
+                    // Create player with the saved username, not as an initial spawn
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false); 
+                    
+                    camera.targetScale = 1.0;
+                    setTimeout(() => {
+                        worldContainer.style.transition = 'transform 0.1s linear';
+                    }, 500);
+                }, 500); // Wait for spawn-in particles to converge
+            }, 1000);
         }
         
         // --- UI & Utility Functions ---
