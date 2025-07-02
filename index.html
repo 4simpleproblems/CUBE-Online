@@ -68,6 +68,7 @@
             height: 100%;
             object-fit: contain; /* Ensures sprite fits without stretching */
             image-rendering: pixelated; /* For a sharp, retro look */
+            transition: transform 0.1s linear;
         }
         
         .player-name {
@@ -372,7 +373,8 @@
                     peerId: myPeerId,
                     username: myPlayer.username,
                     position: myPlayer.body.position,
-                    isTransformed: myPlayer.isTransformed
+                    isTransformed: myPlayer.isTransformed,
+                    direction: myPlayer.direction
                 });
             });
             conn.on('data', handleData);
@@ -448,7 +450,8 @@
                         peerId: myPeerId,
                         position: myPlayer.body.position,
                         velocity: myPlayer.body.velocity,
-                        isTransformed: myPlayer.isTransformed
+                        isTransformed: myPlayer.isTransformed,
+                        direction: myPlayer.direction
                     });
                 }
             });
@@ -500,7 +503,15 @@
             `;
             worldContainer.appendChild(playerEl);
             
-            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false, isIdle: true, isWalking: false });
+            players.set(peerId, { 
+                body: playerBody, 
+                element: playerEl, 
+                username, 
+                isTransformed: false, 
+                isIdle: true, 
+                isWalking: false,
+                direction: 'right' // Start facing right
+            });
         }
 
         function removePlayer(peerId) {
@@ -527,6 +538,7 @@
                 const onGround = Math.abs(player.body.velocity.y) < 0.1;
                 player.isIdle = speed < 0.5 && onGround;
                 player.isWalking = speed >= 0.5 && onGround;
+                player.direction = data.direction || 'right';
 
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
@@ -549,7 +561,8 @@
 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
-                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+                const scaleX = player.direction === 'left' ? -1 : 1;
+                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad) scaleX(${scaleX})`;
             }
         }
         
@@ -610,8 +623,14 @@
             const body = myPlayer.body;
 
             const moveForce = isTransformed ? 0.005 : 0.012;
-            if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
-            if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
+            if (keys['KeyA'] || keys['ArrowLeft']) {
+                Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
+                myPlayer.direction = 'left';
+            }
+            if (keys['KeyD'] || keys['ArrowRight']) {
+                Body.applyForce(body, body.position, { x: moveForce, y: 0 });
+                myPlayer.direction = 'right';
+            }
 
             if (e.code === 'Space' && e.type === 'keydown') {
                 if (!isTransformed && Math.abs(body.velocity.y) < 0.5) {
@@ -627,9 +646,25 @@
         function startAnimationLoop() {
             let idleFrame = 0;
             let walkFrame = 0;
+            let idleTimer = 0;
+            let walkTimer = 0;
+            const loopTime = 50; // Run loop every 50ms
+
             animationInterval = setInterval(() => {
-                idleFrame = (idleFrame + 1) % 2;
-                walkFrame = (walkFrame + 1) % 4;
+                idleTimer += loopTime;
+                walkTimer += loopTime;
+
+                // Update idle animation at 2 FPS (500ms per frame)
+                if (idleTimer >= 500) {
+                    idleFrame = (idleFrame + 1) % 2;
+                    idleTimer = 0;
+                }
+                
+                // Update walk animation at 4 FPS (250ms per frame)
+                if (walkTimer >= 250) {
+                    walkFrame = (walkFrame + 1) % 4;
+                    walkTimer = 0;
+                }
 
                 const idleSrc = `../images/player-idle${idleFrame + 1}.png`;
                 const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
@@ -644,7 +679,7 @@
                         sprite.src = idleSrc;
                     }
                 }
-            }, 100); // 100ms interval = 10 FPS
+            }, loopTime);
         }
         
         // --- UI & Utility Functions ---
