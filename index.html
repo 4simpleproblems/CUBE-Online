@@ -27,26 +27,16 @@
             background-color: var(--background-color);
             color: var(--primary-text-color);
             font-family: 'Inter', sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
             margin: 0;
             overflow: hidden;
         }
 
         #game-viewport {
-            border: 2px solid var(--border-color);
             background-color: var(--surface-color);
-            width: 90vw;
-            height: 75vh;
-            max-width: 960px;
-            max-height: 640px;
+            width: 100vw;
+            height: 100vh;
             position: relative;
             overflow: hidden;
-            border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
         #world-container {
@@ -69,11 +59,27 @@
             box-shadow: 0 0 20px var(--lava-color);
         }
 
+        .death-particle, .wind-particle {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+        }
         .death-particle {
             background-color: #000;
-            position: absolute;
             width: 5px;
             height: 5px;
+        }
+        .wind-particle {
+            background-color: rgba(255, 255, 255, 0.7);
+            width: 8px;
+            height: 8px;
+            animation: fadeOut 0.5s forwards;
+        }
+        @keyframes fadeOut {
+            to {
+                opacity: 0;
+                transform: scale(0.2);
+            }
         }
 
         .player-sprite {
@@ -126,7 +132,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 10;
+            z-index: 30;
             text-align: center;
             padding: 10px;
         }
@@ -179,7 +185,7 @@
             position: absolute;
             top: 15px;
             left: 15px;
-            z-index: 5;
+            z-index: 25;
             display: flex;
             gap: 10px;
         }
@@ -189,7 +195,10 @@
         }
         
         #status {
-            margin-top: 15px;
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
             font-size: 1rem;
             text-align: center;
             height: 40px; /* Reserve space */
@@ -208,6 +217,48 @@
             margin-left: 5px;
         }
 
+        #settings-container {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            z-index: 25;
+        }
+        #settings-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+        #settings-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        #settings-btn svg { fill: white; }
+
+        #settings-menu {
+            position: absolute;
+            top: 50px;
+            right: 0;
+            background: var(--surface-color);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .settings-row label {
+            margin-right: 15px;
+        }
+        
         .loader {
             border: 4px solid var(--border-color);
             border-top: 4px solid var(--accent-color);
@@ -222,7 +273,7 @@
         #message-box {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background-color: rgba(0,0,0,0.6); display: flex;
-            align-items: center; justify-content: center; z-index: 20;
+            align-items: center; justify-content: center; z-index: 40;
         }
         #message-box-content {
             background-color: var(--surface-color); color: var(--primary-text-color); padding: 30px;
@@ -230,25 +281,6 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-width: 90%;
         }
         #message-box-ok { margin-top: 20px; width: auto; }
-
-        /* Responsive Design for Mobile */
-        @media (max-width: 600px) {
-            .ui-view h1 {
-                font-size: 1.8rem;
-            }
-            .btn, .input-field {
-                padding: 10px;
-                font-size: 0.9rem;
-            }
-            #game-ui {
-                top: 10px;
-                left: 10px;
-            }
-            #game-ui .btn {
-                padding: 8px 12px;
-                font-size: 0.8rem;
-            }
-        }
 
     </style>
 </head>
@@ -261,6 +293,18 @@
         <div id="game-ui" class="hidden">
             <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
             <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+        </div>
+
+        <div id="settings-container" class="hidden">
+            <button id="settings-btn">
+                <svg width="24" height="24" viewBox="0 0 24 24"><path d="M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z"/></svg>
+            </button>
+            <div id="settings-menu" class="hidden">
+                <div class="settings-row">
+                    <label for="particle-toggle">Show Others' Particles</label>
+                    <input type="checkbox" id="particle-toggle" checked>
+                </div>
+            </div>
         </div>
 
         <div id="login-view" class="ui-view">
@@ -311,6 +355,7 @@
         const worldHeight = 2000;
         let isTransformed = false;
         let animationInterval;
+        let showOtherPlayerParticles = true;
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -328,6 +373,10 @@
         const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
         const deleteLobbyBtn = document.getElementById('delete-lobby-btn');
         const hostInfoDiv = document.getElementById('host-info');
+        const settingsContainer = document.getElementById('settings-container');
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsMenu = document.getElementById('settings-menu');
+        const particleToggle = document.getElementById('particle-toggle');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -337,6 +386,8 @@
         document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
+        settingsBtn.addEventListener('click', () => settingsMenu.classList.toggle('hidden'));
+        particleToggle.addEventListener('change', (e) => showOtherPlayerParticles = e.target.checked);
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
@@ -363,6 +414,7 @@
                 
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
+                settingsContainer.classList.remove('hidden');
                 
                 initPhysics();
                 createWorld();
@@ -438,6 +490,7 @@
             isHost = false;
             
             gameUi.classList.add('hidden');
+            settingsContainer.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             showMainView();
         }
@@ -447,6 +500,7 @@
             switch(data.type) {
                 case 'player-update': updatePlayer(data); break;
                 case 'player-leave': removePlayer(data.peerId); break;
+                case 'player-death': triggerRemoteDeathFX(data.peerId); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -493,12 +547,10 @@
                     const player = players.get(playerBody.label.split('_')[1]);
                     if (!player) continue;
 
-                    // Ground check
                     if (bodyA.isStatic || bodyB.isStatic) {
                         player.onGround = true;
                     }
 
-                    // Lava check
                     const otherLabel = bodyA === playerBody ? bodyB.label : bodyA.label;
                     if (otherLabel.startsWith('lava') && player.peerId === myPeerId && !player.isDead) {
                         startDeathSequence(player);
@@ -509,12 +561,10 @@
 
         function createWorld() {
             const thickness = 200;
-            // World bounds
             createStaticObject(worldWidth / 2, -thickness/2, worldWidth, thickness, 'ceiling');
             createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
             createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
-            // Ground with a pit
             const pitX = 1800;
             const pitWidth = 400;
             const ground1Width = pitX - pitWidth / 2;
@@ -523,10 +573,8 @@
             const ground2Width = worldWidth - ground2X;
             createStaticObject(ground2X + ground2Width / 2, worldHeight - 10, ground2Width, 20, 'ground2');
             
-            // Lava Pit
             createSensorObject(pitX, worldHeight - 15, pitWidth, 30, 'lava1', 'lava-object');
 
-            // Platforms
             createStaticObject(500, worldHeight - 200, 400, 30, 'platform1');
             createStaticObject(1000, worldHeight - 400, 400, 30, 'platform2');
             createStaticObject(1500, worldHeight - 250, 300, 30, 'platform3');
@@ -725,7 +773,7 @@
             if (myPlayer.onGround) {
                 Body.setVelocity(body, { x: targetVelocityX, y: body.velocity.y });
             } else {
-                const airForce = 0.005;
+                const airForce = 0.001; // Reduced air control
                  if (keys['KeyA'] || keys['ArrowLeft']) {
                     Body.applyForce(body, body.position, { x: -airForce, y: 0 });
                 } else if (keys['KeyD'] || keys['ArrowRight']) {
@@ -753,9 +801,8 @@
 
         function startDeathSequence(player) {
             player.isDead = true;
-            player.element.style.opacity = '0';
-            createDeathParticles(player.body.position);
-            World.remove(world, player.body);
+            broadcast({ type: 'player-death', peerId: player.peerId });
+            triggerRemoteDeathFX(player.peerId); // Trigger for self
             
             fadeOverlay.classList.add('active');
 
@@ -777,8 +824,22 @@
             }, 600);
         }
 
-        function createDeathParticles(position) {
+        function triggerRemoteDeathFX(peerId) {
+            const player = players.get(peerId);
+            if (!player) return;
+
+            player.element.style.opacity = '0';
+            createDeathParticles(player.body.position, player.peerId === myPeerId);
+            World.remove(world, player.body);
+        }
+
+        function createDeathParticles(position, isMyPlayer) {
+            if (!isMyPlayer && !showOtherPlayerParticles) return;
             for (let i = 0; i < 15; i++) {
+                const particleEl = document.createElement('div');
+                particleEl.className = 'death-particle';
+                worldContainer.appendChild(particleEl);
+
                 const particle = Bodies.rectangle(
                     position.x + (Math.random() - 0.5) * 20,
                     position.y + (Math.random() - 0.5) * 20,
@@ -790,10 +851,34 @@
                 });
                 World.add(world, particle);
 
+                const updateParticle = () => {
+                    if (World.get(world, particle.id)) {
+                        particleEl.style.left = `${particle.position.x}px`;
+                        particleEl.style.top = `${particle.position.y}px`;
+                        requestAnimationFrame(updateParticle);
+                    }
+                };
+                requestAnimationFrame(updateParticle);
+
                 setTimeout(() => {
                     World.remove(world, particle);
+                    particleEl.remove();
                 }, 1000 + Math.random() * 500);
             }
+        }
+
+        function createGlideParticle(player) {
+            if (player.peerId !== myPeerId && !showOtherPlayerParticles) return;
+
+            const particleEl = document.createElement('div');
+            particleEl.className = 'wind-particle';
+            worldContainer.appendChild(particleEl);
+            
+            const xOffset = player.direction === 'right' ? -20 : 20;
+            particleEl.style.left = `${player.body.position.x + xOffset}px`;
+            particleEl.style.top = `${player.body.position.y}px`;
+
+            setTimeout(() => particleEl.remove(), 500);
         }
 
         function startAnimationLoop() {
@@ -821,7 +906,6 @@
                 const walkSrc = `../images/player-walk${walkFrame + 1}.png`;
 
                 for (const player of players.values()) {
-                    // Update animation state based on physics
                     const speed = Vector.magnitude(player.body.velocity);
                     player.isWalking = player.onGround && speed > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
@@ -831,8 +915,12 @@
 
                     if (player.isWalking) {
                         sprite.src = walkSrc;
-                    } else { // Covers idle, jumping, and falling
+                    } else {
                         sprite.src = idleSrc;
+                    }
+                    
+                    if (!player.onGround && Math.abs(player.body.velocity.y) > 1) {
+                        createGlideParticle(player);
                     }
                 }
             }, loopTime);
@@ -881,4 +969,4 @@
         }
     </script>
 </body>
-</html>
+</ht
