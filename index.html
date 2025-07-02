@@ -39,9 +39,6 @@
             overflow: hidden;
             cursor: default;
         }
-        #game-viewport.edit-mode {
-            cursor: crosshair;
-        }
         
         #world-container {
             position: absolute;
@@ -52,13 +49,6 @@
             position: absolute;
             background-color: #555; /* Platform color */
             transform-origin: center center;
-        }
-        .game-object.dynamic:hover {
-            background-color: #777;
-        }
-        .game-object.dynamic.delete-mode:hover {
-            background-color: var(--danger-color);
-            cursor: pointer;
         }
         
         .player-object {
@@ -193,10 +183,6 @@
         .btn-secondary:hover { background-color: var(--secondary-hover-color); }
         .btn-danger { background-color: var(--danger-color); }
         .btn-danger:hover { background-color: var(--danger-hover-color); }
-        .btn.active {
-            box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
-            background-color: var(--accent-hover-color);
-        }
 
         #game-ui {
             position: absolute;
@@ -275,20 +261,6 @@
         .settings-row label {
             margin-right: 15px;
         }
-
-        #edit-toolbar {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: var(--surface-color);
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            display: flex;
-            gap: 10px;
-            z-index: 25;
-        }
         
         .loader {
             border: 4px solid var(--border-color);
@@ -324,12 +296,6 @@
         <div id="game-ui" class="hidden">
             <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
             <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
-            <button id="edit-mode-btn" class="btn btn-secondary hidden">Edit Map</button>
-        </div>
-
-        <div id="edit-toolbar" class="hidden">
-            <button id="add-platform-btn" class="btn active">Add</button>
-            <button id="delete-platform-btn" class="btn btn-danger">Delete</button>
         </div>
 
         <div id="settings-container" class="hidden">
@@ -388,16 +354,11 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const dynamicPlatforms = new Map();
         const worldWidth = 10000;
         const worldHeight = 4000;
         let isTransformed = false;
         let animationInterval;
         let showOtherPlayerParticles = true;
-        let isEditMode = false;
-        let editTool = 'add';
-        let cameraScale = 1;
-        let lastMoveTime = Date.now();
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -419,10 +380,6 @@
         const settingsBtn = document.getElementById('settings-btn');
         const settingsMenu = document.getElementById('settings-menu');
         const particleToggle = document.getElementById('particle-toggle');
-        const editModeBtn = document.getElementById('edit-mode-btn');
-        const editToolbar = document.getElementById('edit-toolbar');
-        const addPlatformBtn = document.getElementById('add-platform-btn');
-        const deletePlatformBtn = document.getElementById('delete-platform-btn');
 
         // --- Event Listeners ---
         document.getElementById('create-lobby-btn').addEventListener('click', () => handleLobbyAction(true));
@@ -434,9 +391,6 @@
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         settingsBtn.addEventListener('click', () => settingsMenu.classList.toggle('hidden'));
         particleToggle.addEventListener('change', (e) => showOtherPlayerParticles = e.target.checked);
-        editModeBtn.addEventListener('click', toggleEditMode);
-        addPlatformBtn.addEventListener('click', () => setEditTool('add'));
-        deletePlatformBtn.addEventListener('click', () => setEditTool('delete'));
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
@@ -479,7 +433,6 @@
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
-                    editModeBtn.classList.remove('hidden');
                     updateLobbyControls();
                 } else {
                     connectToPeer(LOBBY_PREFIX + lobbyCode);
@@ -494,10 +447,6 @@
                 connections.set(conn.peer, conn);
                 if (isHost) {
                     updateLobbyControls();
-                    // Send existing dynamic platforms to new player
-                    for (const [id, platform] of dynamicPlatforms.entries()) {
-                        conn.send({ type: 'map-change', action: 'add', platformData: platform.data });
-                    }
                 }
 
                 if (isHost) {
@@ -542,15 +491,12 @@
             players.clear();
             connections.clear();
             gameObjects.clear();
-            dynamicPlatforms.clear();
             worldContainer.innerHTML = '';
             isHost = false;
             
             gameUi.classList.add('hidden');
             settingsContainer.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
-            editModeBtn.classList.add('hidden');
-            editToolbar.classList.add('hidden');
             showMainView();
         }
 
@@ -562,7 +508,6 @@
                 case 'player-death': triggerRemoteDeathFX(data.peerId); break;
                 case 'player-respawn': respawnRemotePlayer(data.peerId, data.position); break;
                 case 'glide-particle': createGlideParticle(data.position, data.direction, false); break;
-                case 'map-change': handleMapChange(data); break;
                 case 'lobby-roster': data.peers.forEach(connectToPeer); break;
                 case 'new-peer-announcement': connectToPeer(data.peerId); break;
             }
@@ -627,7 +572,6 @@
             createStaticObject(-thickness/2, worldHeight/2, thickness, worldHeight, 'left-wall');
             createStaticObject(worldWidth + thickness/2, worldHeight/2, thickness, worldHeight, 'right-wall');
             
-            // Procedurally generate ground and lava pits
             let currentX = 0;
             while (currentX < worldWidth) {
                 const groundWidth = 1000 + Math.random() * 2000;
@@ -641,7 +585,6 @@
                 }
             }
 
-            // Procedurally generate platforms
             for (let i = 0; i < 50; i++) {
                 const pX = Math.random() * worldWidth;
                 const pY = worldHeight - (100 + Math.random() * (worldHeight * 0.6));
@@ -702,7 +645,7 @@
             worldContainer.appendChild(playerEl);
             
             players.set(peerId, { 
-                peerId, body, element: playerEl, username, isTransformed: false, 
+                peerId, body: playerBody, element: playerEl, username, isTransformed: false, 
                 isIdle: true, isWalking: false, onGround: false, direction: 'right', isDead: false
             });
         }
@@ -710,7 +653,7 @@
         function removePlayer(peerId) {
             const player = players.get(peerId);
             if (player) {
-                World.remove(world, player.body);
+                if (player.body) World.remove(world, player.body);
                 player.element.remove();
                 players.delete(peerId);
             }
@@ -800,18 +743,14 @@
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
 
-            const idleTime = Date.now() - lastMoveTime;
-            const targetScale = idleTime > 5000 ? 0.7 : 1.0; // Zoom out after 5 seconds
-            cameraScale += (targetScale - cameraScale) * 0.05; // Smooth transition
-
             const { x, y } = myPlayer.body.position;
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
             
-            const targetX = -x * cameraScale + viewportWidth / 2;
-            const targetY = -y * cameraScale + viewportHeight / 2;
+            const targetX = -x + viewportWidth / 2;
+            const targetY = -y + viewportHeight / 2;
 
-            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${cameraScale})`;
+            worldContainer.style.transform = `translate(${targetX}px, ${targetY}px)`;
         }
 
         const keys = {};
@@ -824,21 +763,16 @@
 
             const body = myPlayer.body;
             const moveSpeed = 5;
-            let moved = false;
 
             if (keys['KeyA'] || keys['ArrowLeft']) {
                 Body.setVelocity(body, { x: -moveSpeed, y: body.velocity.y });
                 myPlayer.direction = 'left';
-                moved = true;
             } else if (keys['KeyD'] || keys['ArrowRight']) {
                 Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
                 myPlayer.direction = 'right';
-                moved = true;
             } else if (myPlayer.onGround) {
                 Body.setVelocity(body, { x: 0, y: body.velocity.y });
             }
-            
-            if (moved) lastMoveTime = Date.now();
         }
 
         function handleSinglePressInput(e) {
@@ -850,13 +784,11 @@
                 if (!isTransformed && myPlayer.onGround) {
                      Body.applyForce(body, body.position, { x: 0, y: -0.25 });
                      myPlayer.onGround = false;
-                     lastMoveTime = Date.now();
                 }
             }
             
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
-                lastMoveTime = Date.now();
             }
         }
 
@@ -892,7 +824,7 @@
         
         function respawnRemotePlayer(peerId, position) {
             const player = players.get(peerId);
-            if (!player || player.body) return; // Don't respawn if already has a body
+            if (!player || player.body) return;
 
             player.body = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
@@ -990,137 +922,6 @@
             if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
             if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
             return null;
-        }
-
-        // --- Map Editing ---
-        function toggleEditMode() {
-            isEditMode = !isEditMode;
-            editModeBtn.classList.toggle('active', isEditMode);
-            editToolbar.classList.toggle('hidden', !isEditMode);
-            gameViewport.classList.toggle('edit-mode', isEditMode);
-
-            if (isEditMode) {
-                gameViewport.addEventListener('mousedown', handleEditorMouseDown);
-            } else {
-                gameViewport.removeEventListener('mousedown', handleEditorMouseDown);
-                gameViewport.removeEventListener('mousemove', handleEditorMouseMove);
-                gameViewport.removeEventListener('mouseup', handleEditorMouseUp);
-            }
-        }
-
-        function setEditTool(tool) {
-            editTool = tool;
-            addPlatformBtn.classList.toggle('active', tool === 'add');
-            deletePlatformBtn.classList.toggle('active', tool === 'delete');
-            document.querySelectorAll('.dynamic').forEach(el => el.classList.toggle('delete-mode', tool === 'delete'));
-        }
-
-        let startPos = null;
-        let previewEl = null;
-
-        function handleEditorMouseDown(e) {
-            if (editTool === 'add') {
-                const worldCoords = screenToWorld(e.clientX, e.clientY);
-                startPos = worldCoords;
-
-                previewEl = document.createElement('div');
-                previewEl.style.position = 'absolute';
-                previewEl.style.border = '2px dashed var(--accent-color)';
-                previewEl.style.left = `${startPos.x}px`;
-                previewEl.style.top = `${startPos.y}px`;
-                worldContainer.appendChild(previewEl);
-
-                gameViewport.addEventListener('mousemove', handleEditorMouseMove);
-                gameViewport.addEventListener('mouseup', handleEditorMouseUp);
-            } else if (editTool === 'delete') {
-                const target = e.target;
-                if (target.classList.contains('dynamic')) {
-                    const platformId = target.id;
-                    removeDynamicPlatform(platformId);
-                    broadcast({type: 'map-change', action: 'delete', id: platformId});
-                }
-            }
-        }
-
-        function handleEditorMouseMove(e) {
-            if (!startPos || !previewEl) return;
-            const currentCoords = screenToWorld(e.clientX, e.clientY);
-            const w = Math.abs(currentCoords.x - startPos.x);
-            const h = Math.abs(currentCoords.y - startPos.y);
-            const left = Math.min(startPos.x, currentCoords.x);
-            const top = Math.min(startPos.y, currentCoords.y);
-            previewEl.style.width = `${w}px`;
-            previewEl.style.height = `${h}px`;
-            previewEl.style.left = `${left}px`;
-            previewEl.style.top = `${top}px`;
-        }
-
-        function handleEditorMouseUp(e) {
-            const currentCoords = screenToWorld(e.clientX, e.clientY);
-            const w = Math.abs(currentCoords.x - startPos.x);
-            const h = Math.abs(currentCoords.y - startPos.y);
-            
-            if (w > 10 && h > 10) { // Minimum size
-                const left = Math.min(startPos.x, currentCoords.x);
-                const top = Math.min(startPos.y, currentCoords.y);
-                const platformData = {
-                    id: `dynamic_${Date.now()}`,
-                    x: left + w / 2,
-                    y: top + h / 2,
-                    w, h
-                };
-                addDynamicPlatform(platformData);
-                broadcast({type: 'map-change', action: 'add', platformData});
-            }
-
-            previewEl.remove();
-            previewEl = null;
-            startPos = null;
-            gameViewport.removeEventListener('mousemove', handleEditorMouseMove);
-            gameViewport.removeEventListener('mouseup', handleEditorMouseUp);
-        }
-
-        function handleMapChange(data) {
-            if (data.action === 'add') {
-                addDynamicPlatform(data.platformData);
-            } else if (data.action === 'delete') {
-                removeDynamicPlatform(data.id);
-            }
-        }
-
-        function addDynamicPlatform(platformData) {
-            if (dynamicPlatforms.has(platformData.id)) return;
-            const { id, x, y, w, h } = platformData;
-            const body = Bodies.rectangle(x, y, w, h, { isStatic: true, friction: 0.5, label: id });
-            World.add(world, body);
-
-            const el = document.createElement('div');
-            el.id = id;
-            el.className = 'game-object dynamic';
-            el.style.width = `${w}px`;
-            el.style.height = `${h}px`;
-            el.style.left = `${x - w/2}px`;
-            el.style.top = `${y - h/2}px`;
-            worldContainer.appendChild(el);
-            
-            dynamicPlatforms.set(id, { body, element: el, data: platformData });
-            if (editTool === 'delete') el.classList.add('delete-mode');
-        }
-
-        function removeDynamicPlatform(id) {
-            const platform = dynamicPlatforms.get(id);
-            if (platform) {
-                World.remove(world, platform.body);
-                platform.element.remove();
-                dynamicPlatforms.delete(id);
-            }
-        }
-        
-        function screenToWorld(screenX, screenY) {
-            const worldRect = worldContainer.getBoundingClientRect();
-            const x = (screenX - worldRect.left) / cameraScale;
-            const y = (screenY - worldRect.top) / cameraScale;
-            return { x, y };
         }
         
         // --- UI & Utility Functions ---
