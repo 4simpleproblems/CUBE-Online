@@ -10,15 +10,16 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
 
         :root {
-            --background-color: #f5f5f5;
-            --primary-text-color: #1a1a1a;
-            --border-color: #e0e0e0;
-            --accent-color: #007aff;
-            --accent-hover-color: #0056b3;
+            --background-color: #1a1a1a;
+            --primary-text-color: #f5f5f5;
+            --border-color: #444;
+            --surface-color: #2d2d2d;
+            --accent-color: #0095ff;
+            --accent-hover-color: #007acc;
             --secondary-color: #6c757d;
             --secondary-hover-color: #5a6268;
-            --danger-color: #dc3545;
-            --danger-hover-color: #c82333;
+            --danger-color: #e53935;
+            --danger-hover-color: #c62828;
         }
 
         body {
@@ -36,7 +37,7 @@
 
         #game-viewport {
             border: 2px solid var(--border-color);
-            background-color: #ffffff;
+            background-color: var(--surface-color);
             width: 90vw;
             height: 75vh;
             max-width: 960px;
@@ -44,25 +45,29 @@
             position: relative;
             overflow: hidden;
             border-radius: 8px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
         #world-container {
             position: absolute;
-            /* Camera transition is handled by JS for smoother following */
         }
 
         .game-object {
             position: absolute;
-            background-color: var(--primary-text-color);
+            background-color: #555; /* Platform color */
             transform-origin: center center;
         }
         
         .player-object {
-            border-radius: 4px;
+            background-color: transparent; /* Player container is invisible */
             transition: border-radius 0.2s ease;
-            /* Player color can be customized here */
-            background-color: var(--accent-color);
+        }
+
+        .player-sprite {
+            width: 100%;
+            height: 100%;
+            object-fit: contain; /* Ensures sprite fits without stretching */
+            image-rendering: pixelated; /* For a sharp, retro look */
         }
         
         .player-name {
@@ -74,7 +79,7 @@
             color: var(--primary-text-color);
             white-space: nowrap;
             font-weight: bold;
-            background-color: rgba(255, 255, 255, 0.7);
+            background-color: rgba(0, 0, 0, 0.5);
             padding: 2px 5px;
             border-radius: 4px;
         }
@@ -84,7 +89,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(255, 255, 255, 0.95);
+            background-color: rgba(26, 26, 26, 0.95);
             backdrop-filter: blur(5px);
             position: absolute;
             top: 0;
@@ -107,7 +112,8 @@
             padding: 12px;
             font-family: 'Inter', sans-serif;
             border: 2px solid var(--border-color);
-            background-color: #fff;
+            background-color: var(--surface-color);
+            color: var(--primary-text-color);
             text-align: center;
             border-radius: 6px;
             margin-bottom: 15px;
@@ -189,7 +195,7 @@
             align-items: center; justify-content: center; z-index: 20;
         }
         #message-box-content {
-            background-color: #fff; color: var(--primary-text-color); padding: 30px;
+            background-color: var(--surface-color); color: var(--primary-text-color); padding: 30px;
             border: 2px solid var(--border-color); border-radius: 8px; text-align: center;
             box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-width: 90%;
         }
@@ -273,6 +279,7 @@
         const worldWidth = 3000;
         const worldHeight = 1500;
         let isTransformed = false;
+        let animationInterval; // To hold the animation timer
 
         // --- PeerJS State ---
         let peer, myPeerId, lobbyCode, isHost = false;
@@ -322,7 +329,6 @@
                 myPeerId = id;
                 console.log('PeerJS connection open. My ID:', myPeerId);
                 
-                // --- Start Game ---
                 loadingView.classList.add('hidden');
                 gameUi.classList.remove('hidden');
                 
@@ -334,6 +340,8 @@
                 
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
+                
+                startAnimationLoop();
 
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
@@ -350,7 +358,6 @@
         function setupConnection(conn) {
             conn.on('open', () => {
                 connections.set(conn.peer, conn);
-                console.log(`Connection established with ${conn.peer}. Total connections: ${connections.size}`);
                 if (isHost) updateLobbyControls();
 
                 if (isHost) {
@@ -373,7 +380,6 @@
         }
         
         function handleDisconnect(peerId) {
-            console.log(`Connection closed with ${peerId}`);
             connections.delete(peerId);
             removePlayer(peerId);
             if (isHost) updateLobbyControls();
@@ -382,17 +388,15 @@
 
         function connectToPeer(peerId) {
             if (!connections.has(peerId) && peerId !== myPeerId) {
-                console.log('Connecting to host/peer:', peerId);
                 setupConnection(peer.connect(peerId));
             }
         }
         
         function leaveLobby() {
-            if (peer) {
-                peer.destroy();
-            }
+            if (peer) peer.destroy();
             if (runner) Runner.stop(runner);
             if (engine) Engine.clear(engine);
+            if (animationInterval) clearInterval(animationInterval);
             
             players.clear();
             connections.clear();
@@ -433,6 +437,9 @@
                 updateCamera();
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
+                    const speed = Vector.magnitude(myPlayer.body.velocity);
+                    myPlayer.isIdle = speed < 0.5;
+
                      broadcast({
                         type: 'player-update',
                         peerId: myPeerId,
@@ -484,10 +491,13 @@
             const playerEl = document.createElement('div');
             playerEl.id = peerId;
             playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `<div class="player-name">${username}</div>`;
+            playerEl.innerHTML = `
+                <img src="/images/player-idle1.png" class="player-sprite" alt="Player">
+                <div class="player-name">${username}</div>
+            `;
             worldContainer.appendChild(playerEl);
             
-            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false });
+            players.set(peerId, { body: playerBody, element: playerEl, username, isTransformed: false, isIdle: true });
         }
 
         function removePlayer(peerId) {
@@ -509,6 +519,10 @@
             if (player && player.body) {
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || {x:0, y:0});
+                
+                const speed = Vector.magnitude(player.body.velocity);
+                player.isIdle = speed < 0.5;
+
                 if (player.isTransformed !== data.isTransformed) {
                     togglePlayerTransformation(player, data.isTransformed);
                 }
@@ -536,17 +550,20 @@
             
             const oldBody = player.body;
             let newBody;
+            const sprite = player.element.querySelector('.player-sprite');
             
             if (shouldBeTransformed) {
                 newBody = Bodies.circle(oldBody.position.x, oldBody.position.y, 25, {
                     frictionAir: 0.005, friction: 0.01, restitution: 0.5
                 });
                 player.element.style.borderRadius = '50%';
+                if(sprite) sprite.style.display = 'none'; // Hide sprite when in ball form
             } else {
                 newBody = Bodies.rectangle(oldBody.position.x, oldBody.position.y, 40, 60, {
                     inertia: Infinity, frictionAir: 0.02, friction: 0.1
                 });
                 player.element.style.borderRadius = '4px';
+                if(sprite) sprite.style.display = 'block'; // Show sprite
             }
             
             Body.setVelocity(newBody, oldBody.velocity);
@@ -558,7 +575,7 @@
             if (isMyPlayer) isTransformed = shouldBeTransformed;
         }
 
-        // --- Camera & Input ---
+        // --- Camera, Input & Animation ---
         function updateCamera() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
@@ -581,19 +598,34 @@
             if (!myPlayer) return;
             const body = myPlayer.body;
 
-            const moveForce = isTransformed ? 0.002 : 0.005;
+            const moveForce = isTransformed ? 0.004 : 0.008;
             if (keys['KeyA'] || keys['ArrowLeft']) Body.applyForce(body, body.position, { x: -moveForce, y: 0 });
             if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
 
             if (e.code === 'Space' && e.type === 'keydown') {
-                if (!isTransformed && Math.abs(body.velocity.y) < 0.1) {
-                     Body.applyForce(body, body.position, { x: 0, y: -0.2 });
+                if (!isTransformed && Math.abs(body.velocity.y) < 0.5) {
+                     Body.applyForce(body, body.position, { x: 0, y: -0.25 });
                 }
             }
             
             if (e.code === 'KeyB' && e.type === 'keydown') {
                 togglePlayerTransformation(myPlayer);
             }
+        }
+
+        function startAnimationLoop() {
+            let frame = 0;
+            animationInterval = setInterval(() => {
+                frame = (frame + 1) % 2;
+                const frameSrc = `/images/player-idle${frame + 1}.png`;
+
+                for (const player of players.values()) {
+                    const sprite = player.element.querySelector('.player-sprite');
+                    if (player.isIdle && sprite && !player.isTransformed) {
+                        sprite.src = frameSrc;
+                    }
+                }
+            }, 250); // 1000ms / 4fps = 250ms
         }
         
         // --- UI & Utility Functions ---
