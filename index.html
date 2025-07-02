@@ -505,7 +505,7 @@
         let sprintParticleTimer = 0;
         const SPRINT_PARTICLE_INTERVAL = 100;
 
-        let peer, myPeerId, lobbyCode, isHost = false;
+        let peer, myPeerId, lobbyCode, isHost = false, myUsername;
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
         const SESSION_KEY = 'humanSimulatorSession';
@@ -536,10 +536,20 @@
         joinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
         showJoinViewBtn.addEventListener('click', showJoinView);
         backToMainBtn.addEventListener('click', showMainView);
-        document.getElementById('message-box-ok').addEventListener('click', () => document.getElementById('message-box').classList.add('hidden'));
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         window.addEventListener('load', checkForSession);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        function handleVisibilityChange() {
+            if (document.visibilityState === 'visible' && peer && peer.disconnected) {
+                if (sessionStorage.getItem(SESSION_KEY)) {
+                     showMessage("You were disconnected. Attempting to reconnect...", () => {
+                        window.location.reload();
+                    });
+                }
+            }
+        }
 
         function checkForSession() {
             const sessionDataString = sessionStorage.getItem(SESSION_KEY);
@@ -547,13 +557,14 @@
                 const sessionData = JSON.parse(sessionDataString);
                 isHost = sessionData.isHost;
                 lobbyCode = sessionData.lobbyCode;
-                usernameInput.value = sessionData.username;
-                usernameJoinInput.value = sessionData.username;
+                myUsername = sessionData.username;
+                usernameInput.value = myUsername;
+                usernameJoinInput.value = myUsername;
                 lobbyCodeInput.value = sessionData.lobbyCode;
                 lockLoginInputs();
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
-                initializePeer(sessionData.username, isHost ? LOBBY_PREFIX + lobbyCode : null);
+                initializePeer(myUsername, isHost ? LOBBY_PREFIX + lobbyCode : null);
                 return;
             }
             const params = new URLSearchParams(window.location.search);
@@ -587,8 +598,6 @@
         function updateUrlWithLobbyCode(code) {
             const url = new URL(window.location);
             url.searchParams.set('lobby', code);
-            url.searchParams.delete('username');
-            url.searchParams.delete('host');
             history.pushState({}, '', url);
         }
 
@@ -598,8 +607,8 @@
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
-            const username = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
-            if (!username) {
+            myUsername = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
+            if (!myUsername) {
                 showMessage('Please enter a username.');
                 return;
             }
@@ -613,36 +622,88 @@
                 }
             }
             lockLoginInputs();
-            const sessionData = { username, lobbyCode, isHost };
+            const sessionData = { username: myUsername, lobbyCode, isHost };
             sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
             updateUrlWithLobbyCode(lobbyCode);
             showLoadingScreen(isCreating);
-            initializePeer(username, isCreating ? LOBBY_PREFIX + lobbyCode : null);
+            initializePeer(myUsername, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
         function initializePeer(username, requestedId) {
             if (peer) peer.destroy();
-            peer = new Peer(requestedId, {});
+
+            // NEW: Configuration with public STUN servers for better reliability
+            const peerConfig = {
+                config: {
+                    'iceServers': [
+                        { urls: 'stun:stun.l.google.com:19302' },
+                        { urls: 'stun:stun1.l.google.com:19302' },
+                        { urls: 'stun:stun2.l.google.com:19302' },
+                        // The Open Relay Project provides a free TURN server for development
+                        {
+                            urls: "turn:static.openrelay.metered.ca:80",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
+                        {
+                            urls: "turn:static.openrelay.metered.ca:443",
+                            username: "openrelayproject",
+                            credential: "openrelayproject",
+                        },
+                    ]
+                }
+            };
+
+            peer = new Peer(requestedId, peerConfig);
+            
             peer.on('open', id => {
                 myPeerId = id;
-                loadingView.classList.add('hidden');
-                gameUi.classList.remove('hidden');
-                initPhysics();
-                createWorld();
-                const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
-                createPlayer(myPeerId, username, startPos);
-                setupInputControls();
-                startAnimationLoop();
                 if (isHost) {
                     document.getElementById('lobby-code-display').textContent = lobbyCode;
                     hostInfoDiv.classList.remove('hidden');
                     updateLobbyControls();
+                    startGame(username);
                 } else {
-                    connectToPeer(LOBBY_PREFIX + lobbyCode);
+                    connectToHost(LOBBY_PREFIX + lobbyCode, username);
                 }
             });
-            peer.on('connection', setupConnection);
+            peer.on('connection', handleIncomingConnection);
             peer.on('error', handleError);
+        }
+
+        function startGame(username) {
+            loadingView.classList.add('hidden');
+            gameUi.classList.remove('hidden');
+            initPhysics();
+            createWorld();
+            const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
+            createPlayer(myPeerId, username, startPos);
+            setupInputControls();
+            startAnimationLoop();
+        }
+
+        function connectToHost(hostId, username) {
+            const conn = peer.connect(hostId, { metadata: { username }, reliable: true });
+            if (conn) {
+                setupConnection(conn);
+            }
+        }
+        
+        function handleIncomingConnection(conn) {
+            const newUsername = conn.metadata.username;
+            const isNameTaken = Array.from(players.values()).some(p => p.username.toLowerCase() === newUsername.toLowerCase());
+            
+            if (isNameTaken) {
+                conn.on('open', () => {
+                    conn.send({ type: 'name-taken' });
+                    setTimeout(() => conn.close(), 100);
+                });
+                return;
+            }
+
+            const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
+            createPlayer(conn.peer, newUsername, startPos, true);
+            setupConnection(conn);
         }
 
         function setupConnection(conn) {
@@ -650,21 +711,22 @@
                 connections.set(conn.peer, conn);
                 if (isHost) {
                     updateLobbyControls();
-                    const allPeerIds = [myPeerId, ...Array.from(connections.keys())].filter(p => p !== conn.peer);
-                    conn.send({ type: 'lobby-roster', peers: allPeerIds });
-                    broadcast({ type: 'new-peer-announcement', peerId: conn.peer }, conn.peer);
+                    const allPlayersInfo = Array.from(players.values()).map(p => ({
+                        peerId: p.peerId,
+                        username: p.username,
+                        position: p.body.position,
+                        isTransformed: p.isTransformed,
+                        direction: p.direction
+                    }));
+                    const allPeerIds = [myPeerId, ...Array.from(connections.keys())];
+
+                    conn.send({ type: 'welcome', players: allPlayersInfo, peerIds: allPeerIds });
+                    
+                    const newPlayerInfo = allPlayersInfo.find(p => p.peerId === conn.peer);
+                    broadcast({ type: 'new-player-joined', playerInfo: newPlayerInfo }, conn.peer);
                 }
-                const myPlayer = players.get(myPeerId);
-                conn.send({
-                    type: 'player-update',
-                    peerId: myPeerId,
-                    username: myPlayer.username,
-                    position: myPlayer.body.position,
-                    isTransformed: myPlayer.isTransformed,
-                    direction: myPlayer.direction
-                });
             });
-            conn.on('data', handleData);
+            conn.on('data', (data) => handleData(data, conn.peer));
             conn.on('close', () => handleDisconnect(conn.peer));
         }
 
@@ -677,7 +739,10 @@
 
         function connectToPeer(peerId) {
             if (!connections.has(peerId) && peerId !== myPeerId) {
-                setupConnection(peer.connect(peerId));
+                const conn = peer.connect(peerId, { metadata: { username: myUsername } });
+                if (conn) {
+                    setupConnection(conn);
+                }
             }
         }
 
@@ -701,14 +766,59 @@
             showMainView();
         }
 
+        function handleJoinRejection() {
+            const codeToKeep = lobbyCodeInput.value;
+            const usernameToEdit = usernameJoinInput.value;
+
+            if (peer) peer.destroy();
+            connections.clear();
+            sessionStorage.removeItem(SESSION_KEY);
+            clearUrlParams();
+            isHost = false;
+
+            unlockLoginInputs();
+            loadingView.classList.add('hidden');
+            
+            showJoinView();
+
+            lobbyCodeInput.value = codeToKeep;
+            usernameJoinInput.value = usernameToEdit;
+            usernameJoinInput.focus();
+            usernameJoinInput.select();
+        }
+
         function handleData(data, peerId) {
             switch (data.type) {
-                case 'player-update': updatePlayer(data); break;
-                case 'player-leave': removePlayer(data.peerId); break;
-                case 'glide-particle': createWindParticle(data.position, data.direction, false); break;
-                case 'lobby-roster': data.peers.forEach(connectToPeer); break;
-                case 'new-peer-announcement': connectToPeer(data.peerId); break;
-                case 'respawn-explosion': createRespawnParticles(data.position); break;
+                case 'player-update':
+                    updatePlayer(data);
+                    break;
+                case 'player-leave':
+                    removePlayer(data.peerId);
+                    break;
+                case 'glide-particle':
+                    createWindParticle(data.position, data.direction, false);
+                    break;
+                case 'respawn-explosion':
+                    createRespawnParticles(data.position);
+                    break;
+                case 'name-taken':
+                    showMessage('This username is already taken. Please choose another.', handleJoinRejection);
+                    break;
+                case 'welcome':
+                    startGame(myUsername);
+                    data.players.forEach(pInfo => {
+                        if (pInfo.peerId !== myPeerId) {
+                            createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true);
+                        }
+                    });
+                    data.peerIds.forEach(connectToPeer);
+                    break;
+                case 'new-player-joined':
+                    const pInfo = data.playerInfo;
+                    if (pInfo && pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
+                        createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true);
+                    }
+                    break;
             }
         }
 
@@ -838,7 +948,7 @@
 
         function updatePlayer(data) {
             let player = players.get(data.peerId);
-            if (!player) {
+            if (!player && data.username) {
                 createPlayer(data.peerId, data.username, data.position, true);
                 player = players.get(data.peerId);
             }
@@ -1282,9 +1392,24 @@
             }, 1000);
         }
 
-        function showMessage(message) {
+        function showMessage(message, onOkCallback) {
             document.getElementById('message-text').textContent = message;
-            document.getElementById('message-box').classList.remove('hidden');
+            const messageBox = document.getElementById('message-box');
+            const okButton = document.getElementById('message-box-ok');
+            
+            const newOkButton = okButton.cloneNode(true);
+            okButton.parentNode.replaceChild(newOkButton, okButton);
+
+            const closeAndCallback = () => {
+                messageBox.classList.add('hidden');
+                if (onOkCallback) {
+                    onOkCallback();
+                }
+            };
+            
+            newOkButton.addEventListener('click', closeAndCallback, { once: true });
+
+            messageBox.classList.remove('hidden');
         }
 
         function showLoadingScreen(isCreating) {
@@ -1315,8 +1440,8 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`);
-            leaveLobby();
+            // Don't call leaveLobby immediately; let the user see the message first.
+            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`, leaveLobby);
         }
 
         function generateLobbyCode() {
