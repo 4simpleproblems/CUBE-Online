@@ -356,12 +356,12 @@
         #action-buttons-zone {
             right: 20px;
             display: flex;
-            gap: 20px;
+            gap: 15px;
             align-items: flex-end;
         }
-        .action-btn {
-            width: 70px;
-            height: 70px;
+        .mobile-action-btn {
+            width: 60px;
+            height: 60px;
             background: rgba(0,0,0,0.2);
             border: 2px solid rgba(0,0,0,0.3);
             border-radius: 50%;
@@ -369,11 +369,17 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 1.2rem;
+            font-size: 0.8rem;
             color: white;
+            text-align: center;
+            line-height: 1.2;
         }
-        .action-btn:active {
+        .mobile-action-btn:active {
             background: rgba(0,0,0,0.4);
+        }
+        #mobile-lock-btn.active {
+            background-color: var(--stamina-bar-color);
+            border-color: #1e7e34;
         }
 
         .off-screen-indicator {
@@ -433,8 +439,9 @@
                 <div id="joystick-nub"></div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
-                <div id="transform-btn" class="action-btn">B</div>
-                <div id="jump-btn" class="action-btn">A</div>
+                <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
+                <div id="mobile-explode-btn" class="mobile-action-btn">EXPLODE</div>
+                <div id="mobile-lock-btn" class="mobile-action-btn">LOCK<br>ANGLE</div>
             </div>
         </div>
 
@@ -534,14 +541,12 @@
 
 
         function checkForSession() {
-            // sessionStorage is the source of truth for an active session
             const sessionDataString = sessionStorage.getItem(SESSION_KEY);
             if (sessionDataString) {
                 const sessionData = JSON.parse(sessionDataString);
                 isHost = sessionData.isHost;
                 lobbyCode = sessionData.lobbyCode;
                 
-                // Pre-fill and disable inputs
                 usernameInput.value = sessionData.username;
                 usernameJoinInput.value = sessionData.username;
                 lobbyCodeInput.value = sessionData.lobbyCode;
@@ -554,7 +559,6 @@
                 return;
             }
 
-            // If no session, check URL for a lobby code to pre-fill the join form
             const params = new URLSearchParams(window.location.search);
             const urlLobbyCode = params.get('lobby');
             if(urlLobbyCode) {
@@ -586,7 +590,6 @@
         function updateUrlWithLobbyCode(code) {
             const url = new URL(window.location);
             url.searchParams.set('lobby', code);
-            // We no longer store username or host status in the URL for security
             url.searchParams.delete('username');
             url.searchParams.delete('host');
             history.pushState({}, '', url);
@@ -608,7 +611,6 @@
                 if (!lobbyCode || lobbyCode.length !== 8) { showMessage('Please enter a valid 8-digit lobby code.'); return; }
             }
             
-            // Lock UI and save session state
             lockLoginInputs();
             const sessionData = { username, lobbyCode, isHost };
             sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
@@ -620,7 +622,7 @@
 
         // --- PeerJS Initialization & Lobby Logic ---
         function initializePeer(username, requestedId) {
-            if (peer) peer.destroy(); // Ensure old peer is gone
+            if (peer) peer.destroy();
             peer = new Peer(requestedId, {});
             peer.on('open', id => {
                 myPeerId = id;
@@ -707,7 +709,6 @@
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             
-            // Clear session data and URL
             sessionStorage.removeItem(SESSION_KEY);
             clearUrlParams();
             unlockLoginInputs();
@@ -807,7 +808,7 @@
             
             const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
                 inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: -1 }, // Players are in a non-colliding group
+                collisionFilter: { group: -1 },
                 label: `player_${peerId}`
             });
             World.add(world, playerBody);
@@ -1115,17 +1116,13 @@
         }
 
         function handleSinglePressInput(e) {
+            if (e.repeat) return;
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead || e.repeat) return;
-            const body = myPlayer.body;
-
-            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
-                if (!isTransformed && myPlayer.onGround) {
-                    Body.applyForce(body, body.position, { x: 0, y: -0.1 });
-                    myPlayer.onGround = false;
-                }
-            }
+            if (!myPlayer || myPlayer.isDead) return;
             
+            if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+                performJump();
+            }
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
             }
@@ -1133,11 +1130,89 @@
                 respawnPlayer();
             }
             if (e.code === 'KeyL') {
-                myPlayer.sideLock = !myPlayer.sideLock;
+                toggleAngleLock();
             }
         }
 
-        function setupMobileControls() {}
+        function performJump() {
+            const myPlayer = players.get(myPeerId);
+            if (myPlayer && !myPlayer.isDead && !isTransformed && myPlayer.onGround) {
+                Body.applyForce(myPlayer.body, myPlayer.body.position, { x: 0, y: -0.1 });
+                myPlayer.onGround = false;
+            }
+        }
+
+        function toggleAngleLock() {
+            const myPlayer = players.get(myPeerId);
+            if (myPlayer) {
+                myPlayer.sideLock = !myPlayer.sideLock;
+                const lockButton = document.getElementById('mobile-lock-btn');
+                if (lockButton) {
+                    lockButton.classList.toggle('active', myPlayer.sideLock);
+                }
+            }
+        }
+
+        function setupMobileControls() {
+            const joystickZone = document.getElementById('joystick-zone');
+            const joystickNub = document.getElementById('joystick-nub');
+            const jumpButton = document.getElementById('mobile-jump-btn');
+            const explodeButton = document.getElementById('mobile-explode-btn');
+            const lockButton = document.getElementById('mobile-lock-btn');
+
+            let joystickActive = false;
+            const joystickRadius = joystickZone.offsetWidth / 2;
+            const nubRadius = joystickNub.offsetWidth / 2;
+            const maxDelta = joystickRadius - nubRadius;
+
+            joystickZone.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                joystickActive = true;
+            }, { passive: false });
+
+            joystickZone.addEventListener('touchmove', (e) => {
+                e.preventDefault();
+                if (!joystickActive) return;
+
+                const touch = e.changedTouches[0];
+                const zoneRect = joystickZone.getBoundingClientRect();
+                const deltaX = touch.clientX - (zoneRect.left + joystickRadius);
+                const deltaY = touch.clientY - (zoneRect.top + joystickRadius);
+                
+                const angle = Math.atan2(deltaY, deltaX);
+                const distance = Math.min(maxDelta, Math.hypot(deltaX, deltaY));
+                
+                const newNubX = Math.cos(angle) * distance;
+                const newNubY = Math.sin(angle) * distance;
+                joystickNub.style.transform = `translate(-50%, -50%) translate(${newNubX}px, ${newNubY}px)`;
+
+                const threshold = 0.2;
+                if (newNubX / maxDelta < -threshold) {
+                    keys['KeyA'] = true;
+                    keys['KeyD'] = false;
+                } else if (newNubX / maxDelta > threshold) {
+                    keys['KeyA'] = false;
+                    keys['KeyD'] = true;
+                } else {
+                    keys['KeyA'] = false;
+                    keys['KeyD'] = false;
+                }
+            }, { passive: false });
+
+            const resetJoystick = () => {
+                joystickActive = false;
+                joystickNub.style.transform = `translate(-50%, -50%)`;
+                keys['KeyA'] = false;
+                keys['KeyD'] = false;
+            };
+
+            joystickZone.addEventListener('touchend', resetJoystick);
+            joystickZone.addEventListener('touchcancel', resetJoystick);
+
+            jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
+            explodeButton.addEventListener('touchstart', (e) => { e.preventDefault(); respawnPlayer(); });
+            lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
+        }
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
