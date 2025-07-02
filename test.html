@@ -120,6 +120,10 @@
         @keyframes fadeOut {
             to { opacity: 0; transform: scale(0.2); }
         }
+        
+        @keyframes pulse {
+            50% { transform: scale(1.15); }
+        }
 
         .player-sprite-wrapper {
             width: 100%;
@@ -381,38 +385,43 @@
             border-color: #1e7e34;
         }
 
-        /* NEW: Styles for the redesigned off-screen indicator */
-        .indicator-new {
+        /* NEW: Styles for the completely remade indicator */
+        .compass-indicator {
             position: absolute;
             z-index: 26;
             pointer-events: none;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            height: 28px;
-            transition: transform 0.1s linear, opacity 0.2s;
-            transform-origin: center center;
+            transition: top 0.1s linear, left 0.1s linear, opacity 0.3s ease;
+            transform: translate(-50%, -50%); /* Center the element on its coordinates */
         }
 
-        .indicator-arrow {
-            width: 0;
-            height: 0;
-            border-style: solid;
-            border-width: 6px 10px 6px 0; /* Creates a triangle pointing right */
-            border-color: transparent var(--player-color) transparent transparent;
-        }
-
-        .indicator-name {
+        .indicator-dot {
+            width: 20px;
+            height: 20px;
             background-color: var(--player-color);
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 12px var(--player-color);
+            animation: pulse 2s infinite ease-in-out;
+        }
+
+        .indicator-label {
+            background-color: rgba(0, 0, 0, 0.65);
+            -webkit-backdrop-filter: blur(4px);
+            backdrop-filter: blur(4px);
             color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
             font-size: 13px;
-            font-weight: bold;
-            padding: 5px 10px;
-            border-radius: 0 14px 14px 0; /* Pill shape */
+            font-weight: 600;
+            margin-top: 8px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 120px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: opacity 0.3s ease;
         }
         
         /* Mobile Horizontal Orientation */
@@ -628,11 +637,10 @@
             initializePeer(myUsername, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
 
-        // NEW: Generates a random, dark, vibrant color for player indicators
         function generateDarkColor() {
-            const hue = Math.floor(Math.random() * 361); // 0-360 for any color
-            const saturation = 70 + Math.floor(Math.random() * 31); // 70-100% for vibrancy
-            const lightness = 35 + Math.floor(Math.random() * 16); // 35-50% for good contrast with white text
+            const hue = Math.floor(Math.random() * 361);
+            const saturation = 70 + Math.floor(Math.random() * 31);
+            const lightness = 35 + Math.floor(Math.random() * 16);
             return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
         }
 
@@ -913,14 +921,13 @@
                 <div class="player-name">${username}</div>`;
             worldContainer.appendChild(playerEl);
             
-            // NEW: Create the redesigned indicator
             const indicatorEl = document.createElement('div');
             indicatorEl.id = `indicator-${peerId}`;
-            indicatorEl.className = 'indicator-new';
+            indicatorEl.className = 'compass-indicator';
             indicatorEl.style.opacity = '0';
             indicatorEl.innerHTML = `
-                <div class="indicator-arrow"></div>
-                <div class="indicator-name">${username}</div>`;
+                <div class="indicator-dot"></div>
+                <div class="indicator-label">${username}</div>`;
             offScreenIndicatorsContainer.appendChild(indicatorEl);
 
             const player = {
@@ -1039,48 +1046,48 @@
             worldContainer.style.transform = `translate(${targetX}px, ${targetY}px) scale(${camera.scale})`;
         }
 
-        // REWRITTEN: Complete overhaul of the indicator logic
         function updateOffScreenIndicators() {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || !myPlayer.body) return;
 
             const viewportWidth = gameViewport.clientWidth;
             const viewportHeight = gameViewport.clientHeight;
-            
-            // Hide all indicators initially
-            players.forEach(p => {
-                if (p.indicator) p.indicator.style.opacity = '0';
-            });
-            
-            for (const otherPlayer of players.values()) {
-                if (otherPlayer.peerId === myPeerId || !otherPlayer.body || otherPlayer.isDead) continue;
-                
-                const screenX = (otherPlayer.body.position.x - camera.x) * camera.scale + viewportWidth / 2;
-                const screenY = (otherPlayer.body.position.y - camera.y) * camera.scale + viewportHeight / 2;
+            const centerX = viewportWidth / 2;
+            const centerY = viewportHeight / 2;
 
-                const indicator = otherPlayer.indicator;
+            // The radius of the "compass ring" is 45% of the smallest screen dimension
+            const radius = Math.min(viewportWidth, viewportHeight) * 0.45;
+
+            players.forEach(p => {
+                if (p.peerId === myPeerId) return;
+
+                const indicator = p.indicator;
+                if (!indicator) return;
+
+                const screenX = (p.body.position.x - camera.x) * camera.scale + centerX;
+                const screenY = (p.body.position.y - camera.y) * camera.scale + centerY;
+
                 const isOffScreen = screenX < 0 || screenX > viewportWidth || screenY < 0 || screenY > viewportHeight;
 
                 if (isOffScreen) {
                     indicator.style.opacity = '1';
-                    
-                    // Set the player's unique color
-                    indicator.style.setProperty('--player-color', otherPlayer.color || '#333');
+                    indicator.style.setProperty('--player-color', p.color);
 
-                    // Clamp the position with a nice padding
-                    const padding = 20;
-                    const clampedX = Math.max(padding, Math.min(screenX, viewportWidth - padding));
-                    const clampedY = Math.max(padding, Math.min(screenY, viewportHeight - padding));
+                    // Angle from my player to the other player
+                    const angle = Math.atan2(p.body.position.y - myPlayer.body.position.y, p.body.position.x - myPlayer.body.position.x);
 
-                    // Angle from the indicator's clamped position on screen to the player's actual position
-                    const angleRad = Math.atan2(screenY - clampedY, screenX - clampedX);
-                    const angleDeg = angleRad * 180 / Math.PI;
+                    // Position the indicator on the compass ring
+                    const indicatorX = centerX + radius * Math.cos(angle);
+                    const indicatorY = centerY + radius * Math.sin(angle);
 
-                    // Position and rotate the entire indicator group
-                    indicator.style.transform = `translate(${clampedX}px, ${clampedY}px) translate(-50%, -50%) rotate(${angleDeg}deg)`;
+                    indicator.style.left = `${indicatorX}px`;
+                    indicator.style.top = `${indicatorY}px`;
+                } else {
+                    indicator.style.opacity = '0';
                 }
-            }
+            });
         }
+
 
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
@@ -1173,7 +1180,6 @@
         function performJump() {
             const myPlayer = players.get(myPeerId);
             if (myPlayer && !myPlayer.isDead && !isTransformed && myPlayer.onGround) {
-                // FIX: Use setVelocity for a consistent jump height across all devices
                 const jumpVelocity = -16;
                 Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: jumpVelocity });
                 myPlayer.onGround = false;
@@ -1236,7 +1242,6 @@
                 const touchDuration = Date.now() - touchStartTime;
                 const touchDistance = Math.hypot(touch.clientX - touchStartPos.x, touch.clientY - touchStartPos.y);
 
-                // FIX: More reliable logic for tap-to-sprint
                 if (touchDuration < 250 && touchDistance < 20) {
                     const myPlayer = players.get(myPeerId);
                     if (myPlayer) {
