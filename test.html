@@ -189,6 +189,22 @@
             transition: width 0.2s linear;
         }
 
+        #combat-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: red;
+            opacity: 0;
+            pointer-events: none;
+            z-index: 28; /* Above game, below UI */
+            transition: opacity 0.5s ease-in-out;
+        }
+        #combat-overlay.active {
+            opacity: 0.2;
+        }
+
         #fade-overlay {
             position: absolute;
             top: 0;
@@ -529,13 +545,24 @@
             color: white;
             text-align: center;
             line-height: 1.2;
+            user-select: none;
+            -webkit-user-select: none;
         }
         .mobile-action-btn:active {
             background: rgba(0,0,0,0.4);
         }
+        .mobile-action-btn.disabled {
+            background: rgba(0,0,0,0.1);
+            color: rgba(255,255,255,0.5);
+            pointer-events: none;
+        }
         #mobile-lock-btn.active {
             background-color: var(--stamina-bar-color);
             border-color: #1e7e34;
+        }
+        #mobile-combat-btn.active {
+            background-color: var(--danger-color);
+            border-color: #a71d2a;
         }
 
         .compass-indicator {
@@ -590,6 +617,7 @@
     <div id="game-viewport">
         <div id="world-container"></div>
         <div id="off-screen-indicators"></div>
+        <div id="combat-overlay"></div>
         <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
@@ -612,7 +640,8 @@
                 </div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
-                <div id="mobile-punch-btn" class="mobile-action-btn">PUNCH</div>
+                <div id="mobile-punch-btn" class="mobile-action-btn disabled">PUNCH</div>
+                <div id="mobile-combat-btn" class="mobile-action-btn">MODE</div>
                 <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
                 <div id="mobile-lock-btn" class="mobile-action-btn">LOCK<br>ANGLE</div>
             </div>
@@ -670,9 +699,13 @@
 
         // --- Game Balance Constants ---
         const PUNCH_STAMINA_COST = 10;
-        const PUNCH_COOLDOWN = 300; // ms
-        const PUNCH_RANGE = 70; // pixels
+        const PUNCH_RANGE = 70;
         const PUNCH_DAMAGE = 15;
+        const PUNCH_SEQUENCE_DURATION = 4000; // 4 seconds
+        const PUNCH_SEQUENCE_FPS = 4;
+        const PUNCH_SEQUENCE_COOLDOWN = 500; // 0.5 seconds
+        const COMBAT_MODE_HOLD_DURATION = 1000; // 1 second
+        const COMBAT_MODE_EXIT_COOLDOWN = 3000; // 3 seconds
 
         let peer, myPeerId, lobbyCode, isHost = false, myUsername;
         const connections = new Map();
@@ -682,6 +715,7 @@
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
         const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
+        const combatOverlay = document.getElementById('combat-overlay');
         const fadeOverlay = document.getElementById('fade-overlay');
         const menuView = document.getElementById('menu-view');
         const loadingView = document.getElementById('loading-view');
@@ -1001,14 +1035,18 @@
                 case 'punch-effect':
                     const puncher = players.get(data.puncherId) || npcs.get(data.puncherId);
                     if (puncher) {
-                        animatePunch(puncher, data.combo);
+                        // All clients, including host, start the visual/audio effect
+                        startPunchSequence(puncher, false);
                     }
-                    data.hits.forEach(hit => {
-                        const target = players.get(hit.targetId) || npcs.get(hit.targetId);
-                        if(target) {
-                            target.currentHealth = Math.max(0, target.currentHealth - hit.damage);
-                        }
-                    });
+                    // Host has already applied damage, so only clients do it here
+                    if (!isHost) {
+                        data.hits.forEach(hit => {
+                            const target = players.get(hit.targetId) || npcs.get(hit.targetId);
+                            if(target) {
+                                target.currentHealth = Math.max(0, target.currentHealth - hit.damage);
+                            }
+                        });
+                    }
                     break;
             }
         }
@@ -1128,10 +1166,17 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
         direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
         currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
         maxHealth: 100, currentHealth: 100,
-        isPunching: false, punchCooldown: false, punchCombo: 0, punchAnimationActive: false,
         lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
         color: color || generateDarkColor(),
-        isNpc: isNpc
+        isNpc: isNpc,
+        
+        // Combat Mode State
+        inCombatMode: false,
+        combatModeToggleTimer: null,
+        onCombatModeCooldown: false,
+        isPunchingSequence: false,
+        punchSequenceEndTime: 0,
+        punchSequenceCooldownEndTime: 0,
     };
 
     if (isNpc) {
@@ -1321,20 +1366,27 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
                 gameViewport.addEventListener('mousedown', (e) => {
-                    // Only trigger for left click
                     if (e.button === 0) {
-                         initiatePunch();
+                         tryStartPunchSequence();
                     }
                 });
             }
         }
 
-        function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
-        function handleKeyUp(e) { keys[e.code] = false; }
+        function handleKeyDown(e) { 
+            if(e.repeat) return;
+            keys[e.code] = true; 
+            handleSinglePressInput(e); 
+            if (e.code === 'KeyX') handleCombatModeButtonDown();
+        }
+        function handleKeyUp(e) { 
+            keys[e.code] = false; 
+            if (e.code === 'KeyX') handleCombatModeButtonUp();
+        }
 
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead) return;
+            if (!myPlayer || myPlayer.isDead || myPlayer.isPunchingSequence) return; // Freeze controls during punch sequence
             const body = myPlayer.body;
             const isKeyboardSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
@@ -1393,11 +1445,14 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             if (e.code === 'KeyL') {
                 toggleAngleLock();
             }
+            if (e.code === 'KeyZ') {
+                tryStartPunchSequence();
+            }
         }
 
         function performJump(character) {
     character = character || players.get(myPeerId); 
-    if (character && !character.isDead && !character.isTransformed && character.onGround) {
+    if (character && !character.isDead && !character.isTransformed && character.onGround && !character.isPunchingSequence) {
         const jumpVelocity = -16;
         Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
         character.onGround = false;
@@ -1416,6 +1471,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             const joystickNub = document.getElementById('joystick-nub');
             const jumpButton = document.getElementById('mobile-jump-btn');
             const punchButton = document.getElementById('mobile-punch-btn');
+            const combatButton = document.getElementById('mobile-combat-btn');
             const lockButton = document.getElementById('mobile-lock-btn');
             let joystickActive = false;
             let touchStartTime = 0;
@@ -1479,8 +1535,10 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             joystickZone.addEventListener('touchend', resetJoystick);
             joystickZone.addEventListener('touchcancel', resetJoystick);
             jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
-            punchButton.addEventListener('touchstart', (e) => { e.preventDefault(); initiatePunch(); });
+            punchButton.addEventListener('touchstart', (e) => { e.preventDefault(); tryStartPunchSequence(); });
             lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
+            combatButton.addEventListener('touchstart', (e) => { e.preventDefault(); handleCombatModeButtonDown(); });
+            combatButton.addEventListener('touchend', (e) => { e.preventDefault(); handleCombatModeButtonUp(); });
         }
 
         function createWindParticle(position, direction, isMyPlayer) {
@@ -1495,20 +1553,19 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
         }
 
 function startAnimationLoop() {
-    let idleFrame = 0, walkFrame = 0, animTimer = 0;
     const loopTime = 50;
     const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
-    let postPunchIdleTimer = 0;
+    const PUNCH_FRAME_DURATION = 1000 / PUNCH_SEQUENCE_FPS;
+    const punchAnimFrames = ['../images/player-idle3.png', '../images/player-punch1.png', '../images/player-idle1.png', '../images/player-punch2.png'];
+
+    let idleFrame = 0, walkFrame = 0, animTimer = 0;
 
     animationInterval = setInterval(() => {
         animTimer += loopTime;
         const allCharacters = [...players.values(), ...npcs.values()];
 
         for (const player of allCharacters) {
-            if (!player.body || player.isTransformed || player.punchAnimationActive) continue;
-
-            player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
-            player.isIdle = player.onGround && !player.isWalking;
+            if (!player.body || player.isTransformed) continue;
 
             const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
             if (!spriteWrapper) continue;
@@ -1519,13 +1576,15 @@ function startAnimationLoop() {
 
             let currentSpritePath;
 
-            // Handle post-punch idle state
-            if (player.postPunchIdle) {
-                currentSpritePath = '../images/player-idle3.png';
-                postPunchIdleTimer += loopTime;
-                if (postPunchIdleTimer > 500) { // Hold idle3 for 0.5s
-                    player.postPunchIdle = false;
-                    postPunchIdleTimer = 0;
+            if (player.isPunchingSequence) {
+                const timeIntoSequence = PUNCH_SEQUENCE_DURATION - (player.punchSequenceEndTime - Date.now());
+                if (timeIntoSequence >= 0) {
+                    const frameIndex = Math.floor(timeIntoSequence / PUNCH_FRAME_DURATION) % punchAnimFrames.length;
+                    currentSpritePath = punchAnimFrames[frameIndex];
+                } else {
+                    // Sequence ended
+                    player.isPunchingSequence = false;
+                    currentSpritePath = '../images/player-idle3.png';
                 }
             } else if (!player.onGround) {
                 if (player.body.velocity.y < -0.1) {
@@ -1534,6 +1593,9 @@ function startAnimationLoop() {
                     currentSpritePath = '../images/player-fall.png';
                 }
             } else {
+                player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
+                player.isIdle = player.onGround && !player.isWalking;
+
                 let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
                 const frameDuration = 1000 / currentFps;
 
@@ -1543,9 +1605,6 @@ function startAnimationLoop() {
                     } else {
                         idleFrame = (idleFrame + 1) % 2;
                     }
-                    if (player.peerId === myPeerId) { 
-                        animTimer = 0;
-                    }
                 }
 
                 if (player.isWalking || player.isSprinting) {
@@ -1554,16 +1613,12 @@ function startAnimationLoop() {
                     currentSpritePath = `../images/player-idle${idleFrame + 1}.png`;
                 }
             }
-            if (animTimer >= 1000) animTimer = 0;
-
+            
             sprites[0].src = currentSpritePath;
             sprites[1].src = currentSpritePath;
-
-            if (!player.isNpc && player.peerId === myPeerId && !player.onGround && Math.abs(player.body.velocity.y) > 1) {
-                broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
-                createWindParticle(player.body.position, player.direction, true);
-            }
         }
+
+        if (animTimer >= 1000) animTimer = 0;
     }, loopTime);
 }
 
@@ -1742,20 +1797,52 @@ function updateNpcBehavior(deltaTime) {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
         }
 
-        // --- Punching and Combat Logic ---
-        
-        function initiatePunch() {
+        // --- Combat Mode and Punching Logic ---
+
+        function handleCombatModeButtonDown() {
             const player = players.get(myPeerId);
-            if (!player || player.punchCooldown || player.isTransformed || player.currentStamina < PUNCH_STAMINA_COST) {
+            if (!player || player.combatModeToggleTimer) return;
+
+            player.combatModeToggleTimer = setTimeout(() => {
+                toggleCombatMode();
+            }, COMBAT_MODE_HOLD_DURATION);
+        }
+
+        function handleCombatModeButtonUp() {
+            const player = players.get(myPeerId);
+            if (!player) return;
+            clearTimeout(player.combatModeToggleTimer);
+            player.combatModeToggleTimer = null;
+        }
+
+        function toggleCombatMode() {
+            const player = players.get(myPeerId);
+            if (!player || player.onCombatModeCooldown) return;
+
+            player.inCombatMode = !player.inCombatMode;
+
+            // Visual and UI updates
+            combatOverlay.classList.toggle('active', player.inCombatMode);
+            document.getElementById('mobile-combat-btn').classList.toggle('active', player.inCombatMode);
+            document.getElementById('mobile-punch-btn').classList.toggle('disabled', !player.inCombatMode);
+
+            // Handle cancelling punch sequence
+            if (!player.inCombatMode && player.isPunchingSequence) {
+                player.isPunchingSequence = false;
+                player.onCombatModeCooldown = true;
+                setTimeout(() => {
+                    player.onCombatModeCooldown = false;
+                }, COMBAT_MODE_EXIT_COOLDOWN);
+            }
+        }
+
+        function tryStartPunchSequence() {
+            const player = players.get(myPeerId);
+            if (!player || !player.inCombatMode || player.isPunchingSequence || Date.now() < player.punchSequenceCooldownEndTime) {
                 return;
             }
 
-            player.punchCooldown = true;
-            player.currentStamina -= PUNCH_STAMINA_COST;
-            setTimeout(() => {
-                player.punchCooldown = false;
-            }, PUNCH_COOLDOWN);
-            
+            // Request the punch from the host
             if (isHost) {
                 processPunch(myPeerId);
             } else {
@@ -1763,58 +1850,44 @@ function updateNpcBehavior(deltaTime) {
             }
         }
 
+        function startPunchSequence(player, isAuthoritative) {
+            if (!player) return;
+
+            player.isPunchingSequence = true;
+            player.punchSequenceEndTime = Date.now() + PUNCH_SEQUENCE_DURATION;
+
+            if(isAuthoritative) {
+                player.punchSequenceCooldownEndTime = Date.now() + PUNCH_SEQUENCE_DURATION + PUNCH_SEQUENCE_COOLDOWN;
+            }
+        }
+
         function processPunch(puncherId) {
             if (!isHost) return;
             
             const puncher = players.get(puncherId);
-            if (!puncher) return;
+            if (!puncher || puncher.isPunchingSequence || Date.now() < puncher.punchSequenceCooldownEndTime) return;
+
+            startPunchSequence(puncher, true); // Host starts sequence immediately
 
             const hits = [];
             const allTargets = [...players.values(), ...npcs.values()];
             
             allTargets.forEach(target => {
-                if (target.peerId === puncherId) return; // Can't hit self
+                if (target.peerId === puncherId) return;
 
                 const distance = Vector.magnitude(Vector.sub(puncher.body.position, target.body.position));
 
                 if (distance < PUNCH_RANGE) {
-                     // Check direction
                     const toTarget = Vector.sub(target.body.position, puncher.body.position);
                     const punchDirection = puncher.direction === 'right' ? {x: 1, y: 0} : {x: -1, y:0};
-                    if (Vector.dot(Vector.normalise(toTarget), punchDirection) > 0.3) { // Check if target is generally in front
-                        hits.push({targetId: target.peerId, damage: PUNCH_DAMAGE});
+                    if (Vector.dot(Vector.normalise(toTarget), punchDirection) > 0.3) {
                         target.currentHealth = Math.max(0, target.currentHealth - PUNCH_DAMAGE);
+                        hits.push({targetId: target.peerId, damage: PUNCH_DAMAGE});
                     }
                 }
             });
             
-            broadcast({ type: 'punch-effect', puncherId: puncherId, combo: puncher.punchCombo, hits: hits });
-            // Also process for host
-            animatePunch(puncher, puncher.punchCombo);
-
-            puncher.punchCombo = (puncher.punchCombo + 1) % 2; // Alternate between 0 and 1
-        }
-
-        function animatePunch(player, combo) {
-            if (!player || player.isTransformed) return;
-            
-            player.punchAnimationActive = true;
-            const sprites = player.element.querySelectorAll('.player-sprite');
-            const punchFrame = combo === 0 ? '../images/player-punch1.png' : '../images/player-punch2.png';
-            const idleFrame = '../images/player-idle3.png';
-
-            // Start punch
-            sprites.forEach(s => s.src = punchFrame);
-
-            // Return to idle after a short delay
-            setTimeout(() => {
-                sprites.forEach(s => s.src = idleFrame);
-                // End animation lock after another short delay
-                setTimeout(() => {
-                    player.punchAnimationActive = false;
-                    player.postPunchIdle = true; // Trigger special idle state in main loop
-                }, 150);
-            }, 100);
+            broadcast({ type: 'punch-effect', puncherId: puncherId, hits: hits });
         }
 
     </script>
