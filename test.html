@@ -624,7 +624,7 @@
         const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
         let engine, world, runner;
         const players = new Map();
-        const npcs = new Map(); // Map to store NPCs
+        const npcs = new Map();
         const gameObjects = new Map();
         const worldWidth = 100000;
         const worldHeight = 10000;
@@ -638,14 +638,6 @@
         const connections = new Map();
         const LOBBY_PREFIX = 'CUBE-EVOLVED-';
         const SESSION_KEY = 'humanSimulatorSession';
-
-        const genericNames = [
-            "Bob", "Timmy", "John", "Steve", "Mike", "Dave", "Paul", "Chris", "Kevin", "Mark",
-            "Alex", "Ben", "Carl", "Doug", "Eric", "Frank", "Gary", "Hank", "Ivan", "Jack",
-            "Larry", "Moe", "Nate", "Oscar", "Pete", "Quinn", "Rick", "Sam", "Tom", "Vince",
-            "Will", "Zack", "Adam", "Brian", "Charles", "Dennis", "Edward", "Fred", "George",
-            "Henry", "Jerry", "Ken", "Leo", "Matt", "Neil", "Owen", "Phil", "Randy", "Sean"
-        ];
 
         const gameViewport = document.getElementById('game-viewport');
         const worldContainer = document.getElementById('world-container');
@@ -673,6 +665,13 @@
         window.addEventListener('load', checkForSession);
         document.addEventListener('visibilitychange', handleVisibilityChange);
         document.getElementById('message-box').style.display = 'none';
+        const npcNames = [
+    "Tom", "Tim", "Bob", "John", "Jimmy", "Sam", "Max", "Ben", "Dan", "Leo",
+    "Alex", "Chris", "Dave", "Ed", "Frank", "George", "Henry", "Ian", "Jack", "Kevin",
+    "Liam", "Mike", "Nate", "Oscar", "Paul", "Quinn", "Ray", "Steve", "Ted", "Vince",
+    "Will", "Zack", "Adam", "Brian", "Carl", "Derek", "Ethan", "Fred", "Gary", "Hank",
+    "Ivan", "Jerry", "Ken", "Larry", "Matt", "Neil", "Owen", "Pete", "Ron", "Stan"
+];
 
         function handleVisibilityChange() {
             if (document.visibilityState === 'visible' && peer && peer.disconnected) {
@@ -802,7 +801,7 @@
             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
             createPlayer(myPeerId, username, startPos);
             if (isHost) {
-                initNPCs();
+                spawnNPCs(5); 
             }
             setupInputControls();
             startAnimationLoop();
@@ -846,15 +845,9 @@
                         direction: p.direction,
                         color: p.color
                     }));
-                    const allNpcsInfo = Array.from(npcs.values()).map(n => ({
-                        id: n.id,
-                        name: n.name,
-                        position: n.body.position,
-                        patrolRange: (n.patrolEnd - n.patrolStart)
-                    }));
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())];
 
-                    conn.send({ type: 'welcome', players: allPlayersInfo, npcs: allNpcsInfo, peerIds: allPeerIds });
+                    conn.send({ type: 'welcome', players: allPlayersInfo, peerIds: allPeerIds });
                     
                     const newPlayerInfo = allPlayersInfo.find(p => p.peerId === conn.peer);
                     broadcast({ type: 'new-player-joined', playerInfo: newPlayerInfo }, conn.peer);
@@ -886,7 +879,6 @@
             if (engine) Engine.clear(engine);
             if (animationInterval) clearInterval(animationInterval);
             players.clear();
-            npcs.clear();
             connections.clear();
             gameObjects.clear();
             worldContainer.innerHTML = '';
@@ -950,33 +942,12 @@
                             if (me) me.color = pInfo.color;
                         }
                     });
-                     data.npcs.forEach(nInfo => {
-                        createNPC(nInfo.id, nInfo.name, nInfo.position, nInfo.patrolRange);
-                    });
                     data.peerIds.forEach(connectToPeer);
                     break;
                 case 'new-player-joined':
                     const pInfo = data.playerInfo;
                     if (pInfo && pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
                         createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
-                    }
-                    break;
-                case 'new-npc':
-                    if (!isHost) {
-                        createNPC(data.id, data.name, data.position, data.patrolRange);
-                    }
-                    break;
-                case 'npcs-update':
-                    if (!isHost) {
-                        data.updates.forEach(update => {
-                            const npc = npcs.get(update.id);
-                            if (npc && npc.body) {
-                                Body.setPosition(npc.body, update.position);
-                                Body.setVelocity(npc.body, update.velocity);
-                                npc.direction = update.direction;
-                                npc.actionState = update.actionState;
-                            }
-                        });
                     }
                     break;
             }
@@ -1000,9 +971,7 @@
                 const deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
                 processPlayerInput(deltaTime);
-                if (isHost) {
-                    updateNPCs(deltaTime);
-                }
+                updateNpcBehavior(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
@@ -1024,26 +993,12 @@
             Events.on(engine, 'collisionStart', (event) => {
                 const pairs = event.pairs;
                 for (const pair of pairs) {
-                    let targetBody = null;
-                    if (pair.bodyA.label.startsWith('player_') || pair.bodyA.label.startsWith('npc_')) {
-                        targetBody = pair.bodyA;
-                    } else if (pair.bodyB.label.startsWith('player_') || pair.bodyB.label.startsWith('npc_')) {
-                        targetBody = pair.bodyB;
-                    }
-
-                    if (targetBody && (pair.bodyA.isStatic || pair.bodyB.isStatic)) {
-                        let entity;
-                        const [type, id] = targetBody.label.split('_');
-                        
-                        if (type === 'player') {
-                            entity = players.get(id);
-                        } else if (type === 'npc') {
-                            entity = npcs.get(id);
-                        }
-
-                        if (entity) {
-                            entity.onGround = true;
-                        }
+                    const playerBody = getPlayerBodyFromPair(pair);
+                    if (!playerBody) continue;
+                    const player = players.get(playerBody.label.split('_')[1]) || npcs.get(playerBody.label.split('_')[1]);
+                    if (!player) continue;
+                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
+                        player.onGround = true;
                     }
                 }
             });
@@ -1067,53 +1022,66 @@
             worldContainer.appendChild(el);
             gameObjects.set(id, { body, element: el });
         }
+function createPlayer(peerId, username, position, isInitialSpawn = false, color = null, isNpc = false) {
+    if (players.has(peerId) || npcs.has(peerId)) return;
 
-        function createPlayer(peerId, username, position, isInitialSpawn = false, color = null) {
-            if (players.has(peerId)) return;
-            const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity,
-                frictionAir: 0.02,
-                friction: 0.1,
-                collisionFilter: { group: -1 },
-                label: `player_${peerId}`
-            });
-            World.add(world, playerBody);
-            const playerEl = document.createElement('div');
-            playerEl.id = `player-el-${peerId}`;
-            playerEl.className = 'game-object player-object';
-            playerEl.innerHTML = `
-                <div class="player-sprite-wrapper">
-                    <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
-                    <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
-                </div>
-                <div class="player-name">${username}</div>`;
-            worldContainer.appendChild(playerEl);
-            
-            const indicatorEl = document.createElement('div');
-            indicatorEl.id = `indicator-${peerId}`;
-            indicatorEl.className = 'compass-indicator';
-            indicatorEl.style.opacity = '0';
-            indicatorEl.innerHTML = `
-                <div class="indicator-dot"></div>
-                <div class="indicator-label">${username}</div>`;
-            offScreenIndicatorsContainer.appendChild(indicatorEl);
+    const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
+        inertia: Infinity,
+        frictionAir: 0.02,
+        friction: 0.1,
+        collisionFilter: { group: -1 },
+        label: `player_${peerId}`
+    });
+    World.add(world, playerBody);
 
-            const player = {
-                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
-                isTransformed: false, isIdle: true, isWalking: false, onGround: false,
-                direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
-                currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
-                lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
-                color: color || generateDarkColor()
-            };
-            players.set(peerId, player);
-            
-            if (!isInitialSpawn) {
-                playerEl.style.opacity = '0';
-                setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
-            }
-        }
+    const playerEl = document.createElement('div');
+    playerEl.id = `player-el-${peerId}`;
+    playerEl.className = 'game-object player-object';
+    const displayName = isNpc ? `[NPC] ${username}` : username;
+    playerEl.innerHTML = `
+        <div class="player-sprite-wrapper">
+            <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
+            <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
+        </div>
+        <div class="player-name">${displayName}</div>`;
+    worldContainer.appendChild(playerEl);
 
+    const indicatorEl = document.createElement('div');
+    indicatorEl.id = `indicator-${peerId}`;
+    indicatorEl.className = 'compass-indicator';
+    indicatorEl.style.opacity = '0';
+    indicatorEl.innerHTML = `
+        <div class="indicator-dot"></div>
+        <div class="indicator-label">${displayName}</div>`;
+    if (!isNpc) {
+        offScreenIndicatorsContainer.appendChild(indicatorEl);
+    }
+    const player = {
+        peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
+        isTransformed: false, isIdle: true, isWalking: false, onGround: false,
+        direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
+        currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
+        lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
+        color: color || generateDarkColor(),
+        isNpc: isNpc
+    };
+
+    if (isNpc) {
+        player.npcState = {
+            moveDirection: Math.random() < 0.5 ? -1 : 1,
+            moveTimer: Math.random() * 3000 + 2000, 
+            jumpTimer: Math.random() * 5000 + 3000  
+        };
+        npcs.set(peerId, player);
+    } else {
+        players.set(peerId, player);
+    }
+
+    if (!isInitialSpawn) {
+        playerEl.style.opacity = '0';
+        setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
+    }
+}
         function removePlayer(peerId) {
             const player = players.get(peerId);
             if (player) {
@@ -1144,21 +1112,21 @@
         }
 
         function updatePlayerElements() {
-            const allEntities = [...players.values(), ...npcs.values()];
-            for (const entity of allEntities) {
-                if (!entity.body) continue;
-                const { position, angle } = entity.body;
-                if (!entity.isTransformed) {
-                    entity.element.style.width = '40px';
-                    entity.element.style.height = '60px';
-                } else { // Should only apply to players
+            const allCharacters = [...players.values(), ...npcs.values()];
+            for (const player of allCharacters) {
+                if (!player.body) continue;
+                const { position, angle } = player.body;
+                if (!player.isTransformed) {
+                    player.element.style.width = '40px';
+                    player.element.style.height = '60px';
+                } else {
                     const diameter = 25 * 2;
-                    entity.element.style.width = `${diameter}px`;
-                    entity.element.style.height = `${diameter}px`;
+                    player.element.style.width = `${diameter}px`;
+                    player.element.style.height = `${diameter}px`;
                 }
-                entity.element.style.left = `${position.x}px`;
-                entity.element.style.top = `${position.y}px`;
-                entity.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+                player.element.style.left = `${position.x}px`;
+                player.element.style.top = `${position.y}px`;
+                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
             }
         }
 
@@ -1340,15 +1308,14 @@
             }
         }
 
-        function performJump() {
-            const myPlayer = players.get(myPeerId);
-            if (myPlayer && !myPlayer.isDead && !isTransformed && myPlayer.onGround) {
-                const jumpVelocity = -16;
-                Body.setVelocity(myPlayer.body, { x: myPlayer.body.velocity.x, y: jumpVelocity });
-                myPlayer.onGround = false;
-            }
-        }
-
+        function performJump(character) {
+    character = character || players.get(myPeerId); 
+    if (character && !character.isDead && !character.isTransformed && character.onGround) {
+        const jumpVelocity = -16;
+        Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
+        character.onGround = false;
+    }
+}
         function toggleAngleLock() {
             const myPlayer = players.get(myPeerId);
             if (myPlayer) {
@@ -1440,75 +1407,74 @@
             setTimeout(() => particleEl.remove(), 500);
         }
 
-        function startAnimationLoop() {
-            let idleFrame = 0, walkFrame = 0, animTimer = 0;
-            const loopTime = 50;
-            const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
-            animationInterval = setInterval(() => {
-                animTimer += loopTime;
-                const allEntities = [...players.values(), ...npcs.values()];
+function startAnimationLoop() {
+    let idleFrame = 0, walkFrame = 0, animTimer = 0;
+    const loopTime = 50;
+    const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
 
-                for (const entity of allEntities) {
-                    if (!entity.body || (entity.isTransformed && entity.isTransformed === true)) continue;
+    animationInterval = setInterval(() => {
+        animTimer += loopTime;
+        const allCharacters = [...players.values(), ...npcs.values()];
 
-                    if (isHost) { // Host calculates walking state for NPCs
-                         entity.isWalking = entity.onGround && Math.abs(entity.body.velocity.x) > 0.5;
-                    } else if (entity.peerId) { // Clients calculate for their own players
-                         entity.isWalking = entity.onGround && Math.abs(entity.body.velocity.x) > 0.5;
-                    } else { // For NPCs on client side, walking is based on velocity magnitude
-                        entity.isWalking = entity.onGround && Math.abs(entity.body.velocity.x) > 0.1;
-                    }
-                    
-                    const spriteWrapper = entity.element.querySelector('.player-sprite-wrapper');
-                    if (!spriteWrapper) continue;
-                    spriteWrapper.style.transform = `rotateY(${entity.direction === 'left' ? 180 : 0}deg)`;
-                    
-                    const sprites = entity.element.querySelectorAll('.player-sprite');
-                    if (sprites.length < 2) continue;
-                    
-                    let currentSpritePath;
+        for (const player of allCharacters) {
+            if (!player.body || player.isTransformed) continue;
 
-                    if (!entity.onGround || entity.actionState === 'jumping') {
-                        if (entity.body.velocity.y < -0.1) {
-                            currentSpritePath = '../images/player-jump.png';
-                        } else {
-                            currentSpritePath = '../images/player-fall.png';
-                        }
+            player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
+            player.isIdle = player.onGround && !player.isWalking;
+
+            const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+            if (!spriteWrapper) continue;
+            spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+
+            const sprites = player.element.querySelectorAll('.player-sprite');
+            if (sprites.length < 2) continue;
+
+            let currentSpritePath;
+
+            if (!player.onGround) {
+                if (player.body.velocity.y < -0.1) {
+                    currentSpritePath = './images/player-jump.png';
+                } else {
+                    currentSpritePath = './images/player-fall.png';
+                }
+            } else {
+                let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
+                const frameDuration = 1000 / currentFps;
+
+                if (animTimer >= frameDuration) {
+                    if (player.isWalking || player.isSprinting) {
+                        walkFrame = (walkFrame + 1) % 4;
                     } else {
-                        const isSprinting = entity.isSprinting || false;
-                        let currentFps = isSprinting ? SPRINT_FPS : (entity.isWalking ? WALK_FPS : IDLE_FPS);
-                        const frameDuration = 1000 / currentFps;
-                        
-                        if (animTimer >= frameDuration) {
-                            if (entity.isWalking || isSprinting) {
-                                walkFrame = (walkFrame + 1) % 4;
-                            } else {
-                                idleFrame = (idleFrame + 1) % 2;
-                            }
-                        }
-                        
-                        if (entity.isWalking || isSprinting) {
-                            currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
-                        } else {
-                            currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
-                        }
+                        idleFrame = (idleFrame + 1) % 2;
                     }
-                    
-                    sprites[0].src = currentSpritePath;
-                    sprites[1].src = currentSpritePath;
-                    
-                    if (entity.peerId === myPeerId && !entity.onGround && Math.abs(entity.body.velocity.y) > 1) {
-                        broadcast({ type: 'glide-particle', position: entity.body.position, direction: entity.direction });
-                        createWindParticle(entity.body.position, entity.direction, true);
+                    if (player.peerId === myPeerId) { 
+                        animTimer = 0;
                     }
-                }
-                
-                // Simplified timer reset from original implementation
-                if (animTimer >= 1000) { // Reset animTimer periodically
-                    animTimer = 0;
                 }
 
-            }, loopTime);
+                if (player.isWalking || player.isSprinting) {
+                    currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
+                } else {
+                    currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
+                }
+            }
+            if (animTimer >= 1000) animTimer = 0;
+
+            sprites[0].src = currentSpritePath;
+            sprites[1].src = currentSpritePath;
+
+            if (!player.isNpc && player.peerId === myPeerId && !player.onGround && Math.abs(player.body.velocity.y) > 1) {
+                broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
+                createWindParticle(player.body.position, player.direction, true);
+            }
+        }
+    }, loopTime);
+}
+
+        function getPlayerBodyFromPair(pair) {
+            if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
+            if (pair.bodyB.label.startsWith('player')) return pair.bodyB;
+            return null;
         }
         
         function triggerScreenShake() {
@@ -1590,7 +1556,41 @@
                 }, 500);
             }, 1000);
         }
+function spawnNPCs(count) {
+    for (let i = 0; i < count; i++) {
+        const npcId = `npc-${Date.now()}-${i}`;
+        const name = npcNames[Math.floor(Math.random() * npcNames.length)];
+        const startPos = { 
+            x: worldWidth / 2 + (Math.random() * 800 - 400), 
+            y: worldHeight - 200 
+        };
+        createPlayer(npcId, name, startPos, true, null, true);
+    }
+}
+function updateNpcBehavior(deltaTime) {
+    if (!isHost) return;
+
+    for (const npc of npcs.values()) {
+        if (!npc.body || npc.isDead) continue;
         
+        npc.npcState.moveTimer -= deltaTime;
+        npc.npcState.jumpTimer -= deltaTime;
+
+        if (npc.npcState.moveTimer <= 0) {
+            npc.npcState.moveDirection *= -1;
+            npc.npcState.moveTimer = Math.random() * 4000 + 3000;
+        }
+
+        if (npc.npcState.jumpTimer <= 0) {
+            performJump(npc);
+            npc.npcState.jumpTimer = Math.random() * 8000 + 5000;
+        }
+
+        const moveSpeed = 3;
+        Body.setVelocity(npc.body, { x: moveSpeed * npc.npcState.moveDirection, y: npc.body.velocity.y });
+        npc.direction = npc.npcState.moveDirection > 0 ? 'right' : 'left';
+    }
+}
         function showMessage(title, message, onOkCallback, options = {}) {
             const messageBox = document.getElementById('message-box');
             document.getElementById('message-title').textContent = title || 'Alert';
@@ -1644,105 +1644,6 @@
 
         function generateLobbyCode() {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
-        }
-
-        // --- NPC SPECIFIC FUNCTIONS ---
-
-        function simpleHash(str) {
-            let hash = 0;
-            for (let i = 0; i < str.length; i++) {
-                const char = str.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash |= 0; // Convert to 32bit integer
-            }
-            return Math.abs(hash);
-        }
-
-        function initNPCs(count = 5) {
-            if (!isHost) return;
-            const usedNames = new Set();
-            const respawnPointX = worldWidth / 2;
-            for (let i = 0; i < count; i++) {
-                let name;
-                do {
-                    name = genericNames[Math.floor(Math.random() * genericNames.length)];
-                } while (usedNames.has(name));
-                usedNames.add(name);
-                const id = `npc_${name.toLowerCase()}`;
-                const nameHash = simpleHash(name);
-                const distanceFromRespawn = (nameHash % 600) - 300;
-                const spawnPos = { x: respawnPointX + distanceFromRespawn, y: worldHeight - 200 };
-                const patrolRange = 100 + (nameHash % 150);
-                createNPC(id, name, spawnPos, patrolRange);
-                broadcast({ type: 'new-npc', id, name, position: spawnPos, patrolRange });
-            }
-        }
-
-        function createNPC(id, name, position, patrolRange) {
-            if (npcs.has(id)) return;
-            const npcBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-                inertia: Infinity, frictionAir: 0.02, friction: 0.1,
-                collisionFilter: { group: -1 }, label: `npc_${id}`
-            });
-            World.add(world, npcBody);
-            const npcEl = document.createElement('div');
-            npcEl.id = `npc-el-${id}`;
-            npcEl.className = 'game-object player-object';
-            npcEl.innerHTML = `
-                <div class="player-sprite-wrapper">
-                    <img src="./images/player-idle1.png" class="player-sprite front" alt="NPC">
-                    <img src="./images/player-idle1.png" class="player-sprite back" alt="NPC">
-                </div>
-                <div class="player-name">[NPC] ${name}</div>`;
-            worldContainer.appendChild(npcEl);
-            const npc = {
-                id, body: npcBody, element: npcEl, name, onGround: false, direction: 'right',
-                patrolStart: position.x - patrolRange / 2,
-                patrolEnd: position.x + patrolRange / 2,
-                isWalking: false, actionState: 'patrolling',
-                actionTimer: 10000 + Math.random() * 10000,
-                actionDuration: 0,
-            };
-            npcs.set(id, npc);
-        }
-
-        function updateNPCs(deltaTime) {
-            if (!isHost) return;
-            const npcUpdates = [];
-            for (const npc of npcs.values()) {
-                npc.actionTimer -= deltaTime;
-                if (npc.actionState === 'patrolling') {
-                    if (npc.actionTimer <= 0) {
-                        if (Math.random() < 0.3) {
-                            npc.actionState = 'jumping';
-                            npc.actionDuration = 2000 + Math.random() * 3000;
-                        }
-                        npc.actionTimer = 10000 + Math.random() * 10000;
-                    } else {
-                        if (npc.body.position.x >= npc.patrolEnd) npc.direction = 'left';
-                        else if (npc.body.position.x <= npc.patrolStart) npc.direction = 'right';
-                        const moveSpeed = 1.5;
-                        const moveX = npc.direction === 'right' ? moveSpeed : -moveSpeed;
-                        Body.setVelocity(npc.body, { x: moveX, y: npc.body.velocity.y });
-                    }
-                }
-                if (npc.actionState === 'jumping') {
-                    npc.actionDuration -= deltaTime;
-                    if (npc.actionDuration <= 0) {
-                        npc.actionState = 'patrolling';
-                    } else if (npc.onGround) {
-                        Body.setVelocity(npc.body, { x: npc.body.velocity.x, y: -12 });
-                        npc.onGround = false;
-                    }
-                }
-                npcUpdates.push({
-                    id: npc.id, position: npc.body.position, velocity: npc.body.velocity,
-                    direction: npc.direction, actionState: npc.actionState
-                });
-            }
-            if (npcUpdates.length > 0) {
-                broadcast({ type: 'npcs-update', updates: npcUpdates });
-            }
         }
     </script>
 </body>
