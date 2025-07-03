@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Level Creator - Human Simulator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paper.js/0.12.17/paper-full.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap');
+
+        :root {
+            --background-color: #f0f0f0;
+            --primary-text-color: #1a1a1a;
+            --border-color: #cccccc;
+            --surface-color: #ffffff;
+            --accent-color: #007bff;
+            --accent-hover-color: #0056b3;
+            --secondary-color: #6c757d;
+            --danger-color: #dc3545;
+            --danger-hover-color: #c82333;
+            --success-color: #28a745;
+            --success-hover-color: #218838;
+        }
+
+        body {
+            background-color: var(--background-color);
+            color: var(--primary-text-color);
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+        
+        /* Main Layout */
+        #creator-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        #toolbar {
+            width: 280px;
+            background-color: var(--surface-color);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        #editor-area {
+            flex-grow: 1;
+            position: relative;
+            background-color: #e9ebee;
+        }
+
+        #editor-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: crosshair;
+        }
+
+        /* Toolbar Styles */
+        .toolbar-section h2 {
+            font-size: 1.2rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .tool-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .tool-btn {
+            padding: 12px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            font-size: 0.9rem;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            background-color: transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tool-btn:hover {
+            background-color: #e9ebee;
+            border-color: var(--secondary-color);
+        }
+
+        .tool-btn.active {
+            background-color: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+
+        .main-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: auto; /* Pushes to the bottom */
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn-success { background-color: var(--success-color); color: white; }
+        .btn-success:hover { background-color: var(--success-hover-color); }
+        .btn-primary { background-color: var(--accent-color); color: white; }
+        .btn-primary:hover { background-color: var(--accent-hover-color); }
+        .btn-danger { background-color: var(--danger-color); color: white; }
+        .btn-danger:hover { background-color: var(--danger-hover-color); }
+
+
+        /* Modal Styles (for data and testing) */
+        .modal-backdrop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease-in-out;
+        }
+        .modal-backdrop.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .modal-content {
+            background-color: var(--surface-color);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            width: 90%;
+            max-width: 800px; /* Increased width for better viewing */
+            text-align: center;
+        }
+        .modal-content h2 {
+            font-size: 1.8rem;
+            margin: 0 0 15px 0;
+        }
+        #data-output {
+            width: 100%;
+            height: 200px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            resize: none;
+            word-break: break-all;
+        }
+        .modal-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        #test-viewport {
+            width: 100%;
+            height: 400px;
+            background-color: var(--background-color);
+            border: 1px solid var(--border-color);
+            position: relative;
+            overflow: hidden;
+        }
+        .test-object {
+             position: absolute;
+             background-color: var(--surface-color);
+             border: 1px solid var(--border-color);
+        }
+        .test-character {
+            position: absolute;
+            width: 40px;
+            height: 60px;
+            /* The background is now on the image */
+        }
+        .test-character .sprite-wrapper {
+            width: 100%;
+            height: 100%;
+            transform-origin: center;
+            transition: transform 0.1s; /* Smooth flip */
+        }
+        .test-character img {
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated; /* For pixel art style */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="creator-container">
+        <div id="toolbar">
+            <div class="toolbar-section">
+                <h2>Tools</h2>
+                <div class="tool-buttons">
+                    <button id="tool-select" class="tool-btn active">Select</button>
+                    <button id="tool-wall" class="tool-btn">Geometry</button>
+                </div>
+            </div>
+             <div class="toolbar-section">
+                <h2>Objects</h2>
+                <div class="tool-buttons">
+                    <button id="tool-spawn" class="tool-btn">Spawn</button>
+                    <button id="tool-npc" class="tool-btn">NPC</button>
+                </div>
+            </div>
+            <div class="toolbar-section">
+                <h2>Actions</h2>
+                <p style="font-size: 0.9rem; color: var(--secondary-color); margin-top: -10px;">Use 'Delete' key to remove selected object.</p>
+                <button id="clear-btn" class="btn btn-danger">Clear All</button>
+            </div>
+
+            <div class="main-actions">
+                <button id="test-btn" class="btn btn-primary">Test Level</button>
+                <button id="create-btn" class="btn btn-success">Create Data</button>
+            </div>
+        </div>
+
+        <div id="editor-area">
+            <canvas id="editor-canvas" resize></canvas>
+        </div>
+    </div>
+
+    <!-- Data Output Modal -->
+    <div id="data-modal" class="modal-backdrop">
+        <div class="modal-content">
+            <h2>Generated Level Data</h2>
+            <textarea id="data-output" readonly></textarea>
+            <div class="modal-actions">
+                <button id="copy-btn" class="btn btn-primary">Copy to Clipboard</button>
+                <button id="close-data-modal-btn" class="btn btn-danger">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Test Level Modal -->
+    <div id="test-modal" class="modal-backdrop">
+        <div class="modal-content">
+            <h2>Level Test</h2>
+            <p style="font-size: 0.9rem; color: var(--secondary-color); margin-bottom: 15px;">Use A/D or Arrow Keys to move, W/Space to jump.</p>
+            <div id="test-viewport"></div>
+            <div class="modal-actions">
+                <button id="close-test-modal-btn" class="btn btn-danger">Close Test</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- Paper.js Setup ---
+        const canvas = document.getElementById('editor-canvas');
+        paper.setup(canvas);
+
+        // --- Editor State ---
+        let currentTool = 'select';
+        let levelObjects = []; // Stores our object data {id, type, paperObject, ...}
+        let selectedObject = null;
+        let fusedGeometry = null; // The combined paper.js path for walls/floors
+
+        // --- Grid ---
+        const gridGroup = new paper.Group();
+        function drawGrid() {
+            gridGroup.removeChildren();
+            const gridSize = 20;
+            const bounds = paper.view.bounds;
+            for (let x = 0; x < bounds.width; x += gridSize) {
+                const line = new paper.Path.Line(new paper.Point(x, 0), new paper.Point(x, bounds.height));
+                line.strokeColor = 'rgba(0,0,0,0.1)';
+                gridGroup.addChild(line);
+            }
+            for (let y = 0; y < bounds.height; y += gridSize) {
+                const line = new paper.Path.Line(new paper.Point(0, y), new paper.Point(bounds.width, y));
+                line.strokeColor = 'rgba(0,0,0,0.1)';
+                gridGroup.addChild(line);
+            }
+            gridGroup.sendToBack();
+        }
+        drawGrid();
+        paper.view.onResize = drawGrid;
+
+        // --- Tool Switching Logic ---
+        const toolButtons = document.querySelectorAll('.tool-btn');
+        toolButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                toolButtons.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTool = btn.id.replace('tool-', '');
+                deselectAll();
+            });
+        });
+
+        // --- Mouse Handling ---
+        let path;
+        const tool = new paper.Tool();
+
+        tool.onMouseDown = (event) => {
+            deselectAll();
+            if (currentTool === 'wall') {
+                path = new paper.Path.Rectangle({
+                    point: event.point,
+                    size: [0, 0],
+                    strokeColor: '#333',
+                    fillColor: '#ccc',
+                });
+            } else if (currentTool === 'spawn' || currentTool === 'npc') {
+                createSpecialObject(event.point, currentTool);
+            } else if (currentTool === 'select') {
+                const hitResult = paper.project.hitTest(event.point, { fill: true, stroke: true, tolerance: 5 });
+                if (hitResult) {
+                    const hitObjectData = levelObjects.find(obj => obj.paperObject === hitResult.item || obj.paperObject === hitResult.item.parent);
+                    if (hitObjectData) {
+                        selectObject(hitObjectData);
+                    }
+                }
+            }
+        };
+
+        tool.onMouseDrag = (event) => {
+            if (currentTool === 'wall' && path) {
+                path.segments[1].point.x = event.point.x;
+                path.segments[2].point = event.point;
+                path.segments[3].point.y = event.point.y;
+            } else if (currentTool === 'select' && selectedObject) {
+                selectedObject.paperObject.position = selectedObject.paperObject.position.add(event.delta);
+                if (selectedObject.type === 'wall') {
+                    updateFusedGeometry();
+                }
+            }
+        };
+
+        tool.onMouseUp = (event) => {
+            if (currentTool === 'wall' && path) {
+                if (path.area > 10) { // Avoid creating tiny objects
+                    const newObject = {
+                        id: Date.now(),
+                        type: currentTool,
+                        paperObject: path,
+                    };
+                    levelObjects.push(newObject);
+                    updateFusedGeometry();
+                } else {
+                    path.remove();
+                }
+                path = null;
+            }
+        };
+
+        // --- Object Creation & Management ---
+        function createSpecialObject(point, type) {
+            let paperObject;
+            if (type === 'spawn') {
+                paperObject = new paper.Path.Circle({
+                    center: point,
+                    radius: 20,
+                    fillColor: 'rgba(40, 167, 69, 0.7)',
+                    strokeColor: '#fff',
+                    strokeWidth: 2,
+                });
+            } else if (type === 'npc') {
+                const npcBody = new paper.Path.Rectangle({
+                    point: [point.x - 20, point.y - 30],
+                    size: [40, 60],
+                    fillColor: 'rgba(255, 193, 7, 0.7)',
+                    strokeColor: '#fff',
+                    strokeWidth: 2,
+                });
+                const npcLabel = new paper.PointText({
+                    point: [point.x, point.y - 40],
+                    content: '[NPC]',
+                    fillColor: '#1a1a1a',
+                    fontFamily: 'Poppins',
+                    fontWeight: 'bold',
+                    fontSize: 12,
+                    justification: 'center',
+                });
+                paperObject = new paper.Group([npcBody, npcLabel]);
+            }
+            const newObject = { id: Date.now(), type, paperObject };
+            levelObjects.push(newObject);
+        }
+
+        function selectObject(objData) {
+            selectedObject = objData;
+            objData.paperObject.selected = true;
+        }
+
+        function deselectAll() {
+            if (selectedObject) {
+                selectedObject.paperObject.selected = false;
+            }
+            selectedObject = null;
+            paper.project.deselectAll();
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Delete' && selectedObject) {
+                const index = levelObjects.findIndex(obj => obj.id === selectedObject.id);
+                if (index > -1) {
+                    selectedObject.paperObject.remove();
+                    levelObjects.splice(index, 1);
+                    if (selectedObject.type === 'wall') {
+                        updateFusedGeometry();
+                    }
+                    selectedObject = null;
+                }
+            }
+        });
+        
+        document.getElementById('clear-btn').addEventListener('click', () => {
+             if (confirm('Are you sure you want to clear the entire level?')) {
+                 levelObjects.forEach(obj => obj.paperObject.remove());
+                 levelObjects = [];
+                 if (fusedGeometry) {
+                    fusedGeometry.remove();
+                    fusedGeometry = null;
+                 }
+                 paper.view.draw();
+             }
+        });
+
+        // --- Geometry Fusing ---
+        function updateFusedGeometry() {
+            if (fusedGeometry) {
+                fusedGeometry.remove();
+                fusedGeometry = null;
+            }
+
+            const geometryObjects = levelObjects.filter(obj => obj.type === 'wall');
+            if (geometryObjects.length === 0) {
+                paper.view.draw();
+                return;
+            }
+
+            geometryObjects.forEach(obj => obj.paperObject.visible = false);
+
+            let combinedPath = geometryObjects[0].paperObject.clone({ insert: false });
+            for (let i = 1; i < geometryObjects.length; i++) {
+                combinedPath = combinedPath.unite(geometryObjects[i].paperObject);
+            }
+            
+            fusedGeometry = combinedPath;
+            fusedGeometry.fillColor = '#ffffff'; // --surface-color
+            fusedGeometry.strokeColor = '#cccccc'; // --border-color
+            fusedGeometry.strokeWidth = 1;
+            fusedGeometry.visible = true;
+            paper.project.activeLayer.addChild(fusedGeometry);
+            fusedGeometry.sendToBack();
+            gridGroup.sendToBack();
+            paper.view.draw();
+        }
+
+        // --- Data Generation ---
+        function generateLevelData() {
+            const levelData = {
+                geometry: [],
+                spawns: [],
+                npcs: [],
+            };
+
+            if (fusedGeometry) {
+                const processPath = (path) => path.segments.map(segment => ({ x: Math.round(segment.point.x), y: Math.round(segment.point.y) }));
+                if (fusedGeometry.children) {
+                    fusedGeometry.children.forEach(child => levelData.geometry.push(processPath(child)));
+                } else {
+                    levelData.geometry.push(processPath(fusedGeometry));
+                }
+            }
+
+            levelObjects.forEach(obj => {
+                const pos = { x: Math.round(obj.paperObject.position.x), y: Math.round(obj.paperObject.position.y) };
+                if (obj.type === 'spawn') {
+                    levelData.spawns.push(pos);
+                } else if (obj.type === 'npc') {
+                    levelData.npcs.push(pos);
+                }
+            });
+
+            const dataString = btoa(JSON.stringify(levelData));
+            document.getElementById('data-output').value = dataString;
+            return levelData;
+        }
+
+        document.getElementById('create-btn').addEventListener('click', () => {
+            generateLevelData();
+            document.getElementById('data-modal').classList.add('visible');
+        });
+
+        document.getElementById('copy-btn').addEventListener('click', () => {
+            const dataOutput = document.getElementById('data-output');
+            dataOutput.select();
+            document.execCommand('copy');
+        });
+        
+        document.getElementById('close-data-modal-btn').addEventListener('click', () => {
+            document.getElementById('data-modal').classList.remove('visible');
+        });
+
+        // --- Test Functionality ---
+        let testEngine, testRunner, testAnimationLoopId;
+        const testCharacters = [];
+        const testKeys = {};
+        
+        document.getElementById('test-btn').addEventListener('click', () => {
+            const levelData = generateLevelData();
+            if (levelData.geometry.length === 0 && levelData.spawns.length === 0) {
+                alert("Please create some level geometry and a spawn point first!");
+                return;
+            }
+            startTest(levelData);
+            document.getElementById('test-modal').classList.add('visible');
+        });
+
+        function startTest(levelData) {
+            const { Engine, Runner, World, Bodies, Body, Events, Vertices } = Matter;
+            const testViewport = document.getElementById('test-viewport');
+            testViewport.innerHTML = '';
+            testCharacters.length = 0;
+
+            testEngine = Engine.create({ gravity: { y: 1 } });
+            testRunner = Runner.create();
+            
+            const staticBodies = [];
+            levelData.geometry.forEach(vertexSet => {
+                if (Vertices.area(vertexSet, true) < 0) Vertices.reverse(vertexSet);
+                const body = Bodies.fromVertices(0, 0, [vertexSet], { isStatic: true, friction: 0.5 });
+                Body.setPosition(body, Vertices.centre(vertexSet));
+                staticBodies.push(body);
+
+                const el = document.createElement('div');
+                el.className = 'test-object';
+                testViewport.appendChild(el);
+                el.style.left = `${body.bounds.min.x}px`;
+                el.style.top = `${body.bounds.min.y}px`;
+                el.style.width = `${body.bounds.max.x - body.bounds.min.x}px`;
+                el.style.height = `${body.bounds.max.y - body.bounds.min.y}px`;
+            });
+
+            const spawnPoint = levelData.spawns[0] || { x: testViewport.clientWidth / 2, y: 100 };
+            const playerBody = Bodies.rectangle(spawnPoint.x, spawnPoint.y, 40, 60, { inertia: Infinity, friction: 0.1, frictionAir: 0.02 });
+            addTestCharacter(playerBody, 'player');
+
+            levelData.npcs.forEach(npcPos => {
+                const npcBody = Bodies.rectangle(npcPos.x, npcPos.y, 40, 60, { inertia: Infinity, friction: 0.1, frictionAir: 0.02 });
+                addTestCharacter(npcBody, 'npc');
+            });
+            
+            World.add(testEngine.world, [...staticBodies, ...testCharacters.map(c => c.body)]);
+            Runner.run(testRunner, testEngine);
+            runTestAnimation();
+
+            const dynamicBodySet = new Set(testCharacters.map(c => c.body));
+            Events.on(testEngine, 'collisionStart', (event) => {
+                for (const pair of event.pairs) {
+                    let charBody = null;
+                    if (dynamicBodySet.has(pair.bodyA)) charBody = pair.bodyA;
+                    else if (dynamicBodySet.has(pair.bodyB)) charBody = pair.bodyB;
+                    
+                    if (charBody) {
+                        const character = testCharacters.find(c => c.body === charBody);
+                        if (character && pair.collision.normal.y > 0.5) character.onGround = true;
+                    }
+                }
+            });
+
+            Events.on(testEngine, 'beforeUpdate', () => {
+                const playerChar = testCharacters.find(c => c.type === 'player');
+                if (playerChar) {
+                    const speed = 5;
+                    if (testKeys['KeyA'] || testKeys['ArrowLeft']) Body.setVelocity(playerChar.body, { x: -speed, y: playerChar.body.velocity.y });
+                    else if (testKeys['KeyD'] || testKeys['ArrowRight']) Body.setVelocity(playerChar.body, { x: speed, y: playerChar.body.velocity.y });
+                }
+
+                testCharacters.filter(c => c.type === 'npc').forEach(npc => {
+                    Body.setVelocity(npc.body, { x: npc.ai.speed * npc.ai.direction, y: npc.body.velocity.y });
+                    if (npc.onGround && Math.abs(npc.body.velocity.x) < 0.1 && Math.abs(npc.body.velocity.y) < 0.1) {
+                        npc.ai.direction *= -1;
+                    }
+                });
+            });
+        }
+
+        function addTestCharacter(body, type) {
+            const el = document.createElement('div');
+            el.className = 'test-character';
+            el.innerHTML = `
+                <div class="sprite-wrapper">
+                    <img src="./images/player-idle1.png" alt="${type}">
+                </div>`;
+            document.getElementById('test-viewport').appendChild(el);
+            
+            testCharacters.push({
+                body: body, type: type, element: el,
+                wrapper: el.querySelector('.sprite-wrapper'),
+                img: el.querySelector('img'), onGround: false, direction: 'right',
+                ai: type === 'npc' ? { direction: 1, speed: 2 } : null,
+                anim: { state: 'idle', timer: 0, idleFrame: 1, walkFrame: 1 }
+            });
+        }
+        
+        function runTestAnimation() {
+            let animTimer = 0;
+            const IDLE_FPS = 2, WALK_FPS = 8;
+            
+            function loop(time) {
+                if (!testEngine) return;
+                animTimer += 16.67; // Assume 60fps for simplicity
+
+                testCharacters.forEach(char => {
+                    const { body, element, wrapper, img, anim } = char;
+
+                    element.style.transform = `translate(${body.position.x - 20}px, ${body.position.y - 30}px)`;
+
+                    const velX = body.velocity.x;
+                    const velY = body.velocity.y;
+
+                    if (Math.abs(velX) > 0.1) char.direction = velX > 0 ? 'right' : 'left';
+                    
+                    let newState = 'idle';
+                    if (!char.onGround) newState = velY < 0 ? 'jump' : 'fall';
+                    else if (Math.abs(velX) > 0.5) newState = 'walk';
+                    
+                    if (anim.state !== newState) {
+                        anim.state = newState;
+                        anim.walkFrame = 1;
+                        anim.idleFrame = 1;
+                    }
+
+                    let newSrc = img.src;
+                    if (anim.state === 'jump') newSrc = './images/player-jump.png';
+                    else if (anim.state === 'fall') newSrc = './images/player-fall.png';
+                    else if (anim.state === 'walk') {
+                        const frameDuration = 1000 / WALK_FPS;
+                        if (animTimer > frameDuration) {
+                            anim.walkFrame = anim.walkFrame % 4 + 1;
+                        }
+                        newSrc = `./images/player-walk${anim.walkFrame}.png`;
+                    } else { // idle
+                        const frameDuration = 1000 / IDLE_FPS;
+                        if (animTimer > frameDuration) {
+                            anim.idleFrame = anim.idleFrame % 2 + 1;
+                        }
+                        newSrc = `./images/player-idle${anim.idleFrame}.png`;
+                    }
+                    
+                    if (img.getAttribute('src') !== newSrc) img.setAttribute('src', newSrc);
+                    wrapper.style.transform = `scaleX(${char.direction === 'right' ? 1 : -1})`;
+                });
+                
+                if (animTimer > 1000) animTimer = 0;
+                testAnimationLoopId = requestAnimationFrame(loop);
+            }
+            testAnimationLoopId = requestAnimationFrame(loop);
+        }
+
+        function handleTestJump() {
+            const playerChar = testCharacters.find(c => c.type === 'player');
+            if (playerChar && playerChar.onGround) {
+                playerChar.onGround = false;
+                Matter.Body.setVelocity(playerChar.body, { x: playerChar.body.velocity.x, y: -16 });
+            }
+        }
+
+        document.addEventListener('keydown', (e) => { 
+            testKeys[e.code] = true;
+            if (document.getElementById('test-modal').classList.contains('visible')) {
+                if(e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
+                    e.preventDefault();
+                    handleTestJump();
+                }
+            }
+        });
+        document.addEventListener('keyup', (e) => { testKeys[e.code] = false; });
+
+        document.getElementById('close-test-modal-btn').addEventListener('click', () => {
+            if (testRunner) Runner.stop(testRunner);
+            if (testEngine) Engine.clear(testEngine);
+            if (testAnimationLoopId) cancelAnimationFrame(testAnimationLoopId);
+            testEngine = null;
+            testRunner = null;
+            testAnimationLoopId = null;
+            document.getElementById('test-modal').classList.remove('visible');
+            document.getElementById('test-viewport').innerHTML = '';
+        });
+
+    });
+    </script>
+</body>
+</html>
