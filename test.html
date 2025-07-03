@@ -24,6 +24,7 @@
             --success-hover-color: #218838;
             --stamina-bar-color: #28a745;
             --health-bar-color: #dc3545;
+            --parry-color: #ffc107;
         }
 
         body {
@@ -65,6 +66,24 @@
             transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s;
             z-index: 10;
             transform-style: preserve-3d;
+        }
+        
+        .player-object.stunned .player-sprite-wrapper {
+            animation: flicker 0.1s linear infinite;
+        }
+
+        .player-object.charging .player-sprite-wrapper::after {
+            content: '';
+            position: absolute;
+            bottom: -15px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            height: 10px;
+            background: linear-gradient(90deg, #fff, #ffc107, #f87c0c, #f54308, #dc3545);
+            border: 1px solid rgba(0,0,0,0.5);
+            border-radius: 5px;
+            animation: charge-pulse 1.2s ease-in-out infinite;
         }
 
         .wind-particle {
@@ -113,6 +132,14 @@
             20%, 80% { transform: translate3d(2px, 0, 0); }
             30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
             40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+        
+        @keyframes flicker {
+            50% { opacity: 0.3; }
+        }
+        
+        @keyframes charge-pulse {
+            50% { transform: translateX(-50%) scale(1.1); }
         }
 
         @keyframes converge {
@@ -556,11 +583,14 @@
             color: rgba(255,255,255,0.5);
             pointer-events: none;
         }
+        #mobile-parry-btn {
+            background-color: var(--parry-color);
+        }
         #mobile-lock-btn.active {
             background-color: var(--stamina-bar-color);
             border-color: #1e7e34;
         }
-        #mobile-combat-btn.active {
+        #mobile-attack-btn.active {
             background-color: var(--danger-color);
             border-color: #a71d2a;
         }
@@ -640,8 +670,8 @@
                 </div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
-                <div id="mobile-punch-btn" class="mobile-action-btn disabled">PUNCH</div>
-                <div id="mobile-combat-btn" class="mobile-action-btn">MODE</div>
+                <div id="mobile-parry-btn" class="mobile-action-btn">PARRY</div>
+                <div id="mobile-attack-btn" class="mobile-action-btn">ATTACK</div>
                 <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
                 <div id="mobile-lock-btn" class="mobile-action-btn">LOCK<br>ANGLE</div>
             </div>
@@ -697,15 +727,23 @@
         let sprintParticleTimer = 0;
         const SPRINT_PARTICLE_INTERVAL = 100;
 
-        // --- Game Balance Constants ---
-        const PUNCH_STAMINA_COST = 10;
-        const PUNCH_RANGE = 70;
-        const PUNCH_DAMAGE = 15;
-        const PUNCH_SEQUENCE_DURATION = 4000; // 4 seconds
-        const PUNCH_SEQUENCE_FPS = 4;
-        const PUNCH_SEQUENCE_COOLDOWN = 500; // 0.5 seconds
-        const COMBAT_MODE_HOLD_DURATION = 1000; // 1 second
-        const COMBAT_MODE_EXIT_COOLDOWN = 3000; // 3 seconds
+        // --- Redesigned Game Balance Constants ---
+        const STAMINA_REGEN_RATE = 15; // Stamina points per second
+        const STAMINA_DRAIN_RATE = 25; // Stamina points per second for sprinting
+        const CHARGE_STAMINA_COST = 5;  // Initial cost to start charging
+        const ATTACK_STAMINA_COST = 15; // Stamina cost for a standard attack
+        const PARRY_STAMINA_COST = 20;  // Stamina cost to attempt a parry
+        const PARRY_WINDOW_MS = 150;     // The timing window for a successful parry (in milliseconds)
+        const PARRY_COOLDOWN_MS = 1000;  // Cooldown after a parry attempt
+        const CHARGE_DURATION_MS = 1200; // Time to reach full charge
+        const PRECISION_STRIKE_WINDOW_MS = 100; // Window for a perfect release
+        const BASE_DAMAGE = 8;
+        const PRECISION_STRIKE_BONUS = 12;
+        const COUNTER_ATTACK_DAMAGE = 20;
+        const ATTACK_RANGE = 75;
+        const KNOCKBACK_FORCE = 8;
+        const PRECISION_KNOCKBACK_FORCE = 16;
+        const COUNTER_ATTACK_WINDOW_MS = 400;
 
         let peer, myPeerId, lobbyCode, isHost = false, myUsername;
         const connections = new Map();
@@ -741,12 +779,12 @@
         document.addEventListener('visibilitychange', handleVisibilityChange);
         document.getElementById('message-box').style.display = 'none';
         const npcNames = [
-    "Tom", "Tim", "Bob", "John", "Jimmy", "Sam", "Max", "Ben", "Dan", "Leo",
-    "Alex", "Chris", "Dave", "Ed", "Frank", "George", "Henry", "Ian", "Jack", "Kevin",
-    "Liam", "Mike", "Nate", "Oscar", "Paul", "Quinn", "Ray", "Steve", "Ted", "Vince",
-    "Will", "Zack", "Adam", "Brian", "Carl", "Derek", "Ethan", "Fred", "Gary", "Hank",
-    "Ivan", "Jerry", "Ken", "Larry", "Matt", "Neil", "Owen", "Pete", "Ron", "Stan"
-];
+            "Tom", "Tim", "Bob", "John", "Jimmy", "Sam", "Max", "Ben", "Dan", "Leo",
+            "Alex", "Chris", "Dave", "Ed", "Frank", "George", "Henry", "Ian", "Jack", "Kevin",
+            "Liam", "Mike", "Nate", "Oscar", "Paul", "Quinn", "Ray", "Steve", "Ted", "Vince",
+            "Will", "Zack", "Adam", "Brian", "Carl", "Derek", "Ethan", "Fred", "Gary", "Hank",
+            "Ivan", "Jerry", "Ken", "Larry", "Matt", "Neil", "Owen", "Pete", "Ron", "Stan"
+        ];
 
         function handleVisibilityChange() {
             if (document.visibilityState === 'visible' && peer && peer.disconnected) {
@@ -992,6 +1030,7 @@
         }
 
         function handleData(data, peerId) {
+            const player = players.get(peerId);
             switch (data.type) {
                 case 'player-update':
                     updatePlayer(data);
@@ -1027,27 +1066,32 @@
                         createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
                     }
                     break;
-                case 'punch-request':
-                    if (isHost) {
-                        processPunch(peerId);
+                case 'attack-charge-start':
+                    if (player) player.isCharging = true;
+                    break;
+                case 'attack-request':
+                    if (isHost) processAttack(peerId, data);
+                    break;
+                case 'attack-effect':
+                    handleAttackEffect(data);
+                    break;
+                case 'parry-request':
+                    if(isHost && player) {
+                       player.isParrying = true;
+                       setTimeout(() => { player.isParrying = false; }, PARRY_WINDOW_MS);
+                       broadcast({ type: 'parry-effect', peerId: peerId });
                     }
                     break;
-                case 'punch-effect':
-                    const puncher = players.get(data.puncherId) || npcs.get(data.puncherId);
-                    if (puncher) {
-                        // All clients, including host, start the visual/audio effect
-                        startPunchSequence(puncher, false);
-                    }
-                    // Host has already applied damage, so only clients do it here
-                    if (!isHost) {
-                        data.hits.forEach(hit => {
-                            const target = players.get(hit.targetId) || npcs.get(hit.targetId);
-                            if(target) {
-                                target.currentHealth = Math.max(0, target.currentHealth - hit.damage);
-                            }
-                        });
+                case 'parry-effect':
+                    const parrier = players.get(data.peerId);
+                    if (parrier) {
+                       parrier.isParrying = true;
+                       setTimeout(() => { parrier.isParrying = false; }, PARRY_WINDOW_MS);
                     }
                     break;
+                case 'counter-attack-request':
+                     if (isHost) processCounterAttack(peerId, data);
+                     break;
             }
         }
 
@@ -1085,7 +1129,9 @@
                         isTransformed: myPlayer.isTransformed,
                         direction: myPlayer.direction,
                         color: myPlayer.color,
-                        health: myPlayer.currentHealth
+                        health: myPlayer.currentHealth,
+                        isCharging: myPlayer.isCharging,
+                        isStunned: myPlayer.isStunned
                     });
                 }
             });
@@ -1121,80 +1167,82 @@
             worldContainer.appendChild(el);
             gameObjects.set(id, { body, element: el });
         }
-function createPlayer(peerId, username, position, isInitialSpawn = false, color = null, isNpc = false) {
-    if (players.has(peerId) || npcs.has(peerId)) return;
-
-    const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
-        inertia: Infinity,
-        frictionAir: 0.02,
-        friction: 0.1,
-        collisionFilter: { group: -1 },
-        label: `player_${peerId}`
-    });
-    World.add(world, playerBody);
-
-    const playerEl = document.createElement('div');
-    playerEl.id = `player-el-${peerId}`;
-    playerEl.className = 'game-object player-object';
-    const displayName = isNpc ? `[NPC] ${username}` : username;
-    playerEl.innerHTML = `
-        <div class="player-sprite-wrapper">
-            <img src="../images/player-idle1.png" class="player-sprite front" alt="Player">
-            <img src="../images/player-idle1.png" class="player-sprite back" alt="Player">
-        </div>
-        <div class="player-status-container">
-            <div class="player-health-bar-container">
-                <div id="player-health-${peerId}" class="player-health-bar"></div>
-            </div>
-            <div class="player-name">${displayName}</div>
-        </div>`;
-    worldContainer.appendChild(playerEl);
-
-    const indicatorEl = document.createElement('div');
-    indicatorEl.id = `indicator-${peerId}`;
-    indicatorEl.className = 'compass-indicator';
-    indicatorEl.style.opacity = '0';
-    indicatorEl.innerHTML = `
-        <div class="indicator-dot"></div>
-        <div class="indicator-label">${displayName}</div>`;
-    if (!isNpc) {
-        offScreenIndicatorsContainer.appendChild(indicatorEl);
-    }
-    const player = {
-        peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
-        isTransformed: false, isIdle: true, isWalking: false, onGround: false,
-        direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
-        currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
-        maxHealth: 100, currentHealth: 100,
-        lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
-        color: color || generateDarkColor(),
-        isNpc: isNpc,
         
-        // Combat Mode State
-        inCombatMode: false,
-        combatModeToggleTimer: null,
-        onCombatModeCooldown: false,
-        isPunchingSequence: false,
-        punchSequenceEndTime: 0,
-        punchSequenceCooldownEndTime: 0,
-    };
+        function createPlayer(peerId, username, position, isInitialSpawn = false, color = null, isNpc = false) {
+            if (players.has(peerId) || npcs.has(peerId)) return;
 
-    if (isNpc) {
-        player.npcState = {
-            moveDirection: Math.random() < 0.5 ? -1 : 1,
-            moveTimer: Math.random() * 3000 + 2000, 
-            jumpTimer: Math.random() * 5000 + 3000   
-        };
-        npcs.set(peerId, player);
-    } else {
-        players.set(peerId, player);
-    }
+            const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
+                inertia: Infinity,
+                frictionAir: 0.02,
+                friction: 0.1,
+                collisionFilter: { group: -1 },
+                label: `player_${peerId}`
+            });
+            World.add(world, playerBody);
 
-    if (!isInitialSpawn) {
-        playerEl.style.opacity = '0';
-        setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
-    }
-}
+            const playerEl = document.createElement('div');
+            playerEl.id = `player-el-${peerId}`;
+            playerEl.className = 'game-object player-object';
+            const displayName = isNpc ? `[NPC] ${username}` : username;
+            playerEl.innerHTML = `
+                <div class="player-sprite-wrapper">
+                    <img src="../images/player-idle1.png" class="player-sprite front" alt="Player">
+                    <img src="../images/player-idle1.png" class="player-sprite back" alt="Player">
+                </div>
+                <div class="player-status-container">
+                    <div class="player-health-bar-container">
+                        <div id="player-health-${peerId}" class="player-health-bar"></div>
+                    </div>
+                    <div class="player-name">${displayName}</div>
+                </div>`;
+            worldContainer.appendChild(playerEl);
+
+            const indicatorEl = document.createElement('div');
+            indicatorEl.id = `indicator-${peerId}`;
+            indicatorEl.className = 'compass-indicator';
+            indicatorEl.style.opacity = '0';
+            indicatorEl.innerHTML = `
+                <div class="indicator-dot"></div>
+                <div class="indicator-label">${displayName}</div>`;
+            if (!isNpc) {
+                offScreenIndicatorsContainer.appendChild(indicatorEl);
+            }
+            const player = {
+                peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
+                isTransformed: false, isIdle: true, isWalking: false, onGround: false,
+                direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
+                currentStamina: 100, staminaRegenRate: STAMINA_REGEN_RATE, staminaDrainRate: STAMINA_DRAIN_RATE,
+                maxHealth: 100, currentHealth: 100,
+                lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
+                color: color || generateDarkColor(),
+                isNpc: isNpc,
+                
+                // Redesigned Combat State
+                isCharging: false,
+                chargeStartTime: 0,
+                isParrying: false,
+                lastParryTime: 0,
+                isStunned: false,
+                canCounter: false,
+            };
+
+            if (isNpc) {
+                player.npcState = {
+                    moveDirection: Math.random() < 0.5 ? -1 : 1,
+                    moveTimer: Math.random() * 3000 + 2000, 
+                    jumpTimer: Math.random() * 5000 + 3000   
+                };
+                npcs.set(peerId, player);
+            } else {
+                players.set(peerId, player);
+            }
+
+            if (!isInitialSpawn) {
+                playerEl.style.opacity = '0';
+                setTimeout(() => { playerEl.style.opacity = '1'; }, 100);
+            }
+        }
+
         function removePlayer(peerId) {
             const player = players.get(peerId);
             if (player) {
@@ -1211,11 +1259,13 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 createPlayer(data.peerId, data.username, data.position, true, data.color);
                 player = players.get(data.peerId);
             }
-            if (player && player.body && !player.isDead) {
+            if (player && player.body && !player.isDead && player.peerId !== myPeerId) { // Only update others
                 Body.setPosition(player.body, data.position);
                 Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
                 player.color = data.color || player.color;
                 player.currentHealth = data.health !== undefined ? data.health : player.currentHealth;
+                player.isCharging = data.isCharging;
+                player.isStunned = data.isStunned;
                 if (player.direction !== data.direction) {
                     player.direction = data.direction || 'right';
                 }
@@ -1241,6 +1291,10 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 player.element.style.left = `${position.x}px`;
                 player.element.style.top = `${position.y}px`;
                 player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+
+                // Update visual states
+                player.element.classList.toggle('charging', player.isCharging);
+                player.element.classList.toggle('stunned', player.isStunned);
 
                 // Update individual health bar
                 const healthBarEl = document.getElementById(`player-health-${player.peerId}`);
@@ -1346,7 +1400,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             if (!myPlayer) return;
             // Update Stamina
             const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'] || myPlayer.sprintModeActive;
-            if (!myPlayer.isSprinting && !isTryingToSprint) {
+            if (!myPlayer.isSprinting && !myPlayer.isCharging) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
             const staminaPercentage = (myPlayer.currentStamina / myPlayer.maxStamina) * 100;
@@ -1366,9 +1420,10 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
                 gameViewport.addEventListener('mousedown', (e) => {
-                    if (e.button === 0) {
-                         tryStartPunchSequence();
-                    }
+                    if (e.button === 0) handleAttackButtonDown();
+                });
+                gameViewport.addEventListener('mouseup', (e) => {
+                    if (e.button === 0) handleAttackButtonUp();
                 });
             }
         }
@@ -1377,22 +1432,28 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             if(e.repeat) return;
             keys[e.code] = true; 
             handleSinglePressInput(e); 
-            if (e.code === 'KeyX') handleCombatModeButtonDown();
         }
         function handleKeyUp(e) { 
             keys[e.code] = false; 
-            if (e.code === 'KeyX') handleCombatModeButtonUp();
         }
 
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead || myPlayer.isPunchingSequence) return; // Freeze controls during punch sequence
+            if (!myPlayer || myPlayer.isDead || myPlayer.isStunned) return; // Freeze controls if stunned
+            
             const body = myPlayer.body;
             const isKeyboardSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
+
+            if(myPlayer.isCharging) { // Reduced movement while charging
+                Body.setVelocity(body, { x: body.velocity.x * 0.95, y: body.velocity.y });
+                return;
+            }
+
             if (isMovingHorizontally) {
                 myPlayer.lastMoveTimestamp = Date.now();
             }
+
             myPlayer.isSprinting = false;
             if (myPlayer.isTransformed) {
                 const moveForce = 0.001;
@@ -1445,19 +1506,20 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             if (e.code === 'KeyL') {
                 toggleAngleLock();
             }
-            if (e.code === 'KeyZ') {
-                tryStartPunchSequence();
+            if (e.code === 'KeyC') {
+                handleParry();
             }
         }
 
         function performJump(character) {
-    character = character || players.get(myPeerId); 
-    if (character && !character.isDead && !character.isTransformed && character.onGround && !character.isPunchingSequence) {
-        const jumpVelocity = -16;
-        Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
-        character.onGround = false;
-    }
-}
+            character = character || players.get(myPeerId); 
+            if (character && !character.isDead && !character.isTransformed && character.onGround && !character.isCharging) {
+                const jumpVelocity = -16;
+                Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
+                character.onGround = false;
+            }
+        }
+
         function toggleAngleLock() {
             const myPlayer = players.get(myPeerId);
             if (myPlayer) {
@@ -1470,8 +1532,8 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             const joystickZone = document.getElementById('joystick-zone');
             const joystickNub = document.getElementById('joystick-nub');
             const jumpButton = document.getElementById('mobile-jump-btn');
-            const punchButton = document.getElementById('mobile-punch-btn');
-            const combatButton = document.getElementById('mobile-combat-btn');
+            const attackButton = document.getElementById('mobile-attack-btn');
+            const parryButton = document.getElementById('mobile-parry-btn');
             const lockButton = document.getElementById('mobile-lock-btn');
             let joystickActive = false;
             let touchStartTime = 0;
@@ -1535,10 +1597,10 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             joystickZone.addEventListener('touchend', resetJoystick);
             joystickZone.addEventListener('touchcancel', resetJoystick);
             jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
-            punchButton.addEventListener('touchstart', (e) => { e.preventDefault(); tryStartPunchSequence(); });
+            attackButton.addEventListener('touchstart', (e) => { e.preventDefault(); handleAttackButtonDown(); });
+            attackButton.addEventListener('touchend', (e) => { e.preventDefault(); handleAttackButtonUp(); });
+            parryButton.addEventListener('touchstart', (e) => { e.preventDefault(); handleParry(); });
             lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
-            combatButton.addEventListener('touchstart', (e) => { e.preventDefault(); handleCombatModeButtonDown(); });
-            combatButton.addEventListener('touchend', (e) => { e.preventDefault(); handleCombatModeButtonUp(); });
         }
 
         function createWindParticle(position, direction, isMyPlayer) {
@@ -1552,75 +1614,67 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             setTimeout(() => particleEl.remove(), 500);
         }
 
-function startAnimationLoop() {
-    const loopTime = 50;
-    const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
-    const PUNCH_FRAME_DURATION = 1000 / PUNCH_SEQUENCE_FPS;
-    const punchAnimFrames = ['../images/player-idle3.png', '../images/player-punch1.png', '../images/player-idle1.png', '../images/player-punch2.png'];
+        function startAnimationLoop() {
+            const loopTime = 50;
+            const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
 
-    let idleFrame = 0, walkFrame = 0, animTimer = 0;
+            let idleFrame = 0, walkFrame = 0, animTimer = 0;
 
-    animationInterval = setInterval(() => {
-        animTimer += loopTime;
-        const allCharacters = [...players.values(), ...npcs.values()];
+            animationInterval = setInterval(() => {
+                animTimer += loopTime;
+                const allCharacters = [...players.values(), ...npcs.values()];
 
-        for (const player of allCharacters) {
-            if (!player.body || player.isTransformed) continue;
+                for (const player of allCharacters) {
+                    if (!player.body || player.isTransformed) continue;
 
-            const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
-            if (!spriteWrapper) continue;
-            spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+                    const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
+                    if (!spriteWrapper) continue;
+                    spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
 
-            const sprites = player.element.querySelectorAll('.player-sprite');
-            if (sprites.length < 2) continue;
+                    const sprites = player.element.querySelectorAll('.player-sprite');
+                    if (sprites.length < 2) continue;
 
-            let currentSpritePath;
+                    let currentSpritePath;
 
-            if (player.isPunchingSequence) {
-                const timeIntoSequence = PUNCH_SEQUENCE_DURATION - (player.punchSequenceEndTime - Date.now());
-                if (timeIntoSequence >= 0) {
-                    const frameIndex = Math.floor(timeIntoSequence / PUNCH_FRAME_DURATION) % punchAnimFrames.length;
-                    currentSpritePath = punchAnimFrames[frameIndex];
-                } else {
-                    // Sequence ended
-                    player.isPunchingSequence = false;
-                    currentSpritePath = '../images/player-idle3.png';
-                }
-            } else if (!player.onGround) {
-                if (player.body.velocity.y < -0.1) {
-                    currentSpritePath = '../images/player-jump.png';
-                } else {
-                    currentSpritePath = '../images/player-fall.png';
-                }
-            } else {
-                player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
-                player.isIdle = player.onGround && !player.isWalking;
-
-                let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
-                const frameDuration = 1000 / currentFps;
-
-                if (animTimer >= frameDuration) {
-                    if (player.isWalking || player.isSprinting) {
-                        walkFrame = (walkFrame + 1) % 4;
+                    if (player.isParrying) {
+                        currentSpritePath = '../images/player-jump.png'; // Visual for parry
+                    } else if (player.isCharging) {
+                        currentSpritePath = '../images/player-idle3.png'; // Tense idle for charging
+                    } else if (!player.onGround) {
+                        if (player.body.velocity.y < -0.1) {
+                            currentSpritePath = '../images/player-jump.png';
+                        } else {
+                            currentSpritePath = '../images/player-fall.png';
+                        }
                     } else {
-                        idleFrame = (idleFrame + 1) % 2;
+                        player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
+                        player.isIdle = player.onGround && !player.isWalking;
+
+                        let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
+                        const frameDuration = 1000 / currentFps;
+
+                        if (animTimer >= frameDuration) {
+                            if (player.isWalking || player.isSprinting) {
+                                walkFrame = (walkFrame + 1) % 4;
+                            } else {
+                                idleFrame = (idleFrame + 1) % 2;
+                            }
+                        }
+
+                        if (player.isWalking || player.isSprinting) {
+                            currentSpritePath = `../images/player-walk${walkFrame + 1}.png`;
+                        } else {
+                            currentSpritePath = `../images/player-idle${idleFrame + 1}.png`;
+                        }
                     }
+                    
+                    sprites[0].src = currentSpritePath;
+                    sprites[1].src = currentSpritePath;
                 }
 
-                if (player.isWalking || player.isSprinting) {
-                    currentSpritePath = `../images/player-walk${walkFrame + 1}.png`;
-                } else {
-                    currentSpritePath = `../images/player-idle${idleFrame + 1}.png`;
-                }
-            }
-            
-            sprites[0].src = currentSpritePath;
-            sprites[1].src = currentSpritePath;
+                if (animTimer >= 1000) animTimer = 0;
+            }, loopTime);
         }
-
-        if (animTimer >= 1000) animTimer = 0;
-    }, loopTime);
-}
 
         function getPlayerBodyFromPair(pair) {
             if (pair.bodyA.label.startsWith('player')) return pair.bodyA;
@@ -1707,41 +1761,44 @@ function startAnimationLoop() {
                 }, 500);
             }, 1000);
         }
-function spawnNPCs(count) {
-    for (let i = 0; i < count; i++) {
-        const npcId = `npc-${Date.now()}-${i}`;
-        const name = npcNames[Math.floor(Math.random() * npcNames.length)];
-        const startPos = { 
-            x: worldWidth / 2 + (Math.random() * 800 - 400), 
-            y: worldHeight - 200 
-        };
-        createPlayer(npcId, name, startPos, true, null, true);
-    }
-}
-function updateNpcBehavior(deltaTime) {
-    if (!isHost) return;
-
-    for (const npc of npcs.values()) {
-        if (!npc.body || npc.isDead) continue;
         
-        npc.npcState.moveTimer -= deltaTime;
-        npc.npcState.jumpTimer -= deltaTime;
-
-        if (npc.npcState.moveTimer <= 0) {
-            npc.npcState.moveDirection *= -1;
-            npc.npcState.moveTimer = Math.random() * 4000 + 3000;
+        function spawnNPCs(count) {
+            for (let i = 0; i < count; i++) {
+                const npcId = `npc-${Date.now()}-${i}`;
+                const name = npcNames[Math.floor(Math.random() * npcNames.length)];
+                const startPos = { 
+                    x: worldWidth / 2 + (Math.random() * 800 - 400), 
+                    y: worldHeight - 200 
+                };
+                createPlayer(npcId, name, startPos, true, null, true);
+            }
         }
+        
+        function updateNpcBehavior(deltaTime) {
+            if (!isHost) return;
 
-        if (npc.npcState.jumpTimer <= 0) {
-            performJump(npc);
-            npc.npcState.jumpTimer = Math.random() * 8000 + 5000;
+            for (const npc of npcs.values()) {
+                if (!npc.body || npc.isDead) continue;
+                
+                npc.npcState.moveTimer -= deltaTime;
+                npc.npcState.jumpTimer -= deltaTime;
+
+                if (npc.npcState.moveTimer <= 0) {
+                    npc.npcState.moveDirection *= -1;
+                    npc.npcState.moveTimer = Math.random() * 4000 + 3000;
+                }
+
+                if (npc.npcState.jumpTimer <= 0) {
+                    performJump(npc);
+                    npc.npcState.jumpTimer = Math.random() * 8000 + 5000;
+                }
+
+                const moveSpeed = 3;
+                Body.setVelocity(npc.body, { x: moveSpeed * npc.npcState.moveDirection, y: npc.body.velocity.y });
+                npc.direction = npc.npcState.moveDirection > 0 ? 'right' : 'left';
+            }
         }
-
-        const moveSpeed = 3;
-        Body.setVelocity(npc.body, { x: moveSpeed * npc.npcState.moveDirection, y: npc.body.velocity.y });
-        npc.direction = npc.npcState.moveDirection > 0 ? 'right' : 'left';
-    }
-}
+        
         function showMessage(title, message, onOkCallback, options = {}) {
             const messageBox = document.getElementById('message-box');
             document.getElementById('message-title').textContent = title || 'Alert';
@@ -1797,99 +1854,171 @@ function updateNpcBehavior(deltaTime) {
             return Math.random().toString(36).substring(2, 10).toUpperCase();
         }
 
-        // --- Combat Mode and Punching Logic ---
+        // --- Redesigned Combat Logic ---
 
-        function handleCombatModeButtonDown() {
+        function handleAttackButtonDown() {
             const player = players.get(myPeerId);
-            if (!player || player.combatModeToggleTimer) return;
+            if (!player || player.isCharging || player.currentStamina < CHARGE_STAMINA_COST || player.isStunned) return;
 
-            player.combatModeToggleTimer = setTimeout(() => {
-                toggleCombatMode();
-            }, COMBAT_MODE_HOLD_DURATION);
-        }
-
-        function handleCombatModeButtonUp() {
-            const player = players.get(myPeerId);
-            if (!player) return;
-            clearTimeout(player.combatModeToggleTimer);
-            player.combatModeToggleTimer = null;
-        }
-
-        function toggleCombatMode() {
-            const player = players.get(myPeerId);
-            if (!player || player.onCombatModeCooldown) return;
-
-            player.inCombatMode = !player.inCombatMode;
-
-            // Visual and UI updates
-            combatOverlay.classList.toggle('active', player.inCombatMode);
-            document.getElementById('mobile-combat-btn').classList.toggle('active', player.inCombatMode);
-            document.getElementById('mobile-punch-btn').classList.toggle('disabled', !player.inCombatMode);
-
-            // Handle cancelling punch sequence
-            if (!player.inCombatMode && player.isPunchingSequence) {
-                player.isPunchingSequence = false;
-                player.onCombatModeCooldown = true;
-                setTimeout(() => {
-                    player.onCombatModeCooldown = false;
-                }, COMBAT_MODE_EXIT_COOLDOWN);
-            }
-        }
-
-        function tryStartPunchSequence() {
-            const player = players.get(myPeerId);
-            if (!player || !player.inCombatMode || player.isPunchingSequence || Date.now() < player.punchSequenceCooldownEndTime) {
+            if (player.canCounter) {
+                broadcast({ type: 'counter-attack-request' });
+                player.canCounter = false;
                 return;
             }
 
-            // Request the punch from the host
-            if (isHost) {
-                processPunch(myPeerId);
-            } else {
-                broadcast({ type: 'punch-request' });
-            }
+            player.isCharging = true;
+            player.chargeStartTime = Date.now();
+            player.currentStamina -= CHARGE_STAMINA_COST;
+            broadcast({ type: 'attack-charge-start' });
         }
 
-        function startPunchSequence(player, isAuthoritative) {
-            if (!player) return;
+        function handleAttackButtonUp() {
+            const player = players.get(myPeerId);
+            if (!player || !player.isCharging) return;
 
-            player.isPunchingSequence = true;
-            player.punchSequenceEndTime = Date.now() + PUNCH_SEQUENCE_DURATION;
+            const chargeDuration = Date.now() - player.chargeStartTime;
+            player.isCharging = false;
 
-            if(isAuthoritative) {
-                player.punchSequenceCooldownEndTime = Date.now() + PUNCH_SEQUENCE_DURATION + PUNCH_SEQUENCE_COOLDOWN;
-            }
-        }
+            if (player.currentStamina < ATTACK_STAMINA_COST) return;
+            player.currentStamina -= ATTACK_STAMINA_COST;
 
-        function processPunch(puncherId) {
-            if (!isHost) return;
+            const isPrecision = Math.abs(chargeDuration - CHARGE_DURATION_MS) < PRECISION_STRIKE_WINDOW_MS;
             
-            const puncher = players.get(puncherId);
-            if (!puncher || puncher.isPunchingSequence || Date.now() < puncher.punchSequenceCooldownEndTime) return;
+            const attackData = {
+                type: 'attack-request',
+                chargeDuration: chargeDuration,
+                isPrecision: isPrecision,
+                direction: player.direction
+            };
 
-            startPunchSequence(puncher, true); // Host starts sequence immediately
+            if (isHost) {
+                processAttack(myPeerId, attackData);
+            } else {
+                broadcast(attackData);
+            }
+        }
+        
+        function handleParry() {
+            const player = players.get(myPeerId);
+            if (!player || Date.now() - player.lastParryTime < PARRY_COOLDOWN_MS || player.currentStamina < PARRY_STAMINA_COST) return;
+
+            player.lastParryTime = Date.now();
+            player.currentStamina -= PARRY_STAMINA_COST;
+
+            const request = { type: 'parry-request' };
+            if(isHost) {
+                player.isParrying = true;
+                setTimeout(() => { player.isParrying = false; }, PARRY_WINDOW_MS);
+                broadcast({ type: 'parry-effect', peerId: myPeerId });
+            } else {
+                broadcast(request);
+            }
+        }
+
+        function processAttack(attackerId, attackData) {
+            if (!isHost) return;
+            const attacker = players.get(attackerId) || npcs.get(attackerId);
+            if (!attacker) return;
 
             const hits = [];
+            const parries = [];
+
             const allTargets = [...players.values(), ...npcs.values()];
+            for(const target of allTargets) {
+                if(target.peerId === attackerId) continue;
+                const distance = Vector.magnitude(Vector.sub(target.body.position, attacker.body.position));
+                
+                if(distance < ATTACK_RANGE) {
+                    const attackDirection = attackData.direction === 'right' ? {x:1, y:0} : {x:-1, y:0};
+                    const toTarget = Vector.normalise(Vector.sub(target.body.position, attacker.body.position));
+
+                    if (Vector.dot(attackDirection, toTarget) > 0.3) { // Check if target is in front
+                        if (target.isParrying) {
+                           parries.push({ parrierId: target.peerId, attackerId: attackerId });
+                           target.canCounter = true;
+                           attacker.isStunned = true;
+                           setTimeout(() => { target.canCounter = false; }, COUNTER_ATTACK_WINDOW_MS);
+                           setTimeout(() => { attacker.isStunned = false; }, 500);
+                        } else {
+                            let damage = BASE_DAMAGE;
+                            let knockback = KNOCKBACK_FORCE;
+                            if (attackData.isPrecision) {
+                                damage += PRECISION_STRIKE_BONUS;
+                                knockback = PRECISION_KNOCKBACK_FORCE;
+                            }
+                            target.currentHealth = Math.max(0, target.currentHealth - damage);
+                            Body.applyForce(target.body, target.body.position, Vector.mult(toTarget, knockback));
+                            hits.push({targetId: target.peerId, damage: damage});
+                        }
+                    }
+                }
+            }
+            broadcast({type: 'attack-effect', attackerId: attackerId, hits: hits, parries: parries});
+            handleAttackEffect({attackerId, hits, parries}); // Host processes it too
+        }
+        
+        function processCounterAttack(attackerId, attackData) {
+            if (!isHost) return;
+            const attacker = players.get(attackerId);
+            if (!attacker || !attacker.canCounter) return;
             
-            allTargets.forEach(target => {
-                if (target.peerId === puncherId) return;
+            attacker.canCounter = false;
+            // Similar logic to processAttack but with fixed counter damage/effects
+            const hits = [];
+            const allTargets = [...players.values(), ...npcs.values()];
+            for (const target of allTargets) {
+                 if (target.peerId === attackerId) continue;
+                 const distance = Vector.magnitude(Vector.sub(target.body.position, attacker.body.position));
+                 if (distance < ATTACK_RANGE) {
+                    target.currentHealth = Math.max(0, target.currentHealth - COUNTER_ATTACK_DAMAGE);
+                    hits.push({targetId: target.peerId, damage: COUNTER_ATTACK_DAMAGE});
+                 }
+            }
+            broadcast({type: 'attack-effect', attackerId: attackerId, hits: hits, isCounter: true});
+            handleAttackEffect({attackerId, hits, isCounter: true});
+        }
 
-                const distance = Vector.magnitude(Vector.sub(puncher.body.position, target.body.position));
 
-                if (distance < PUNCH_RANGE) {
-                    const toTarget = Vector.sub(target.body.position, puncher.body.position);
-                    const punchDirection = puncher.direction === 'right' ? {x: 1, y: 0} : {x: -1, y:0};
-                    if (Vector.dot(Vector.normalise(toTarget), punchDirection) > 0.3) {
-                        target.currentHealth = Math.max(0, target.currentHealth - PUNCH_DAMAGE);
-                        hits.push({targetId: target.peerId, damage: PUNCH_DAMAGE});
+        function handleAttackEffect(data) {
+            // All clients run this for visual feedback
+            const attacker = players.get(data.attackerId);
+            if (attacker && attacker.peerId === myPeerId) {
+                // If I am the attacker and it wasn't a precision strike, give minor camera shake
+                if (!data.isPrecision) triggerScreenShake();
+            }
+
+            data.hits?.forEach(hit => {
+                const target = players.get(hit.targetId);
+                if (target) {
+                    if (target.peerId === myPeerId) {
+                        triggerScreenShake(); // Screen shake for the player who got hit
+                    }
+                    if(!isHost) {
+                       target.currentHealth = Math.max(0, target.currentHealth - hit.damage);
                     }
                 }
             });
-            
-            broadcast({ type: 'punch-effect', puncherId: puncherId, hits: hits });
-        }
 
+            data.parries?.forEach(parry => {
+                const parrier = players.get(parry.parrierId);
+                const parriedAttacker = players.get(parry.attackerId);
+
+                if (parrier) {
+                    if(parrier.peerId === myPeerId) {
+                        // Special feedback for successful parry
+                        showMessage("Parried!", "Counter now!", null, { style: 'success', duration: COUNTER_ATTACK_WINDOW_MS });
+                    }
+                    if(!isHost) {
+                        parrier.canCounter = true;
+                        setTimeout(() => { parrier.canCounter = false; }, COUNTER_ATTACK_WINDOW_MS);
+                    }
+                }
+                if (parriedAttacker && !isHost) {
+                    parriedAttacker.isStunned = true;
+                    setTimeout(() => { parriedAttacker.isStunned = false; }, 500);
+                }
+            });
+        }
     </script>
 </body>
 </html>
