@@ -23,7 +23,6 @@
             --success-color: #28a745;
             --success-hover-color: #218838;
             --stamina-bar-color: #28a745;
-            --health-bar-color: #dc3545;
         }
 
         body {
@@ -44,7 +43,7 @@
         }
 
         #game-viewport.screenshake {
-            animation: screen-shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+             animation: screen-shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
         }
         
         #world-container {
@@ -65,10 +64,6 @@
             transition: border-radius 0.2s ease, opacity 0.5s ease 0.4s;
             z-index: 10;
             transform-style: preserve-3d;
-        }
-        
-        .player-object.dead .player-sprite-wrapper {
-             filter: grayscale(100%) opacity(0.6);
         }
 
         .wind-particle {
@@ -339,39 +334,25 @@
         }
 
         #game-ui-buttons { display: flex; gap: 10px; }
-        
-        .status-bar-container {
-             width: 200px;
-             height: 15px;
-             background-color: #e9ecef;
-             border-radius: 10px;
-             border: 2px solid var(--border-color);
-             overflow: hidden;
-        }
 
         #stamina-bar-container {
-             margin-top: 5px;
-        }
-        
-        #health-bar-container {
-             margin-top: 5px;
+            width: 200px;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            border: 2px solid var(--border-color);
+            overflow: hidden;
+            margin-top: 5px;
         }
 
-        .status-bar {
-             width: 100%;
-             height: 100%;
-             border-radius: 8px;
-             transition: width 0.1s linear;
-        }
-        
         #stamina-bar {
-             background-color: var(--stamina-bar-color);
+            width: 100%;
+            height: 100%;
+            background-color: var(--stamina-bar-color);
+            border-radius: 8px;
+            transition: width 0.1s linear;
         }
         
-        #health-bar {
-            background-color: var(--health-bar-color);
-        }
-
         #status {
             position: fixed;
             bottom: 10px;
@@ -571,6 +552,87 @@
                 align-items: flex-end;
             }
         }
+        
+        /* Chat System Styles */
+        #chat-container {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 350px;
+            max-width: 90vw;
+            z-index: 35;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        #chat-container.hidden {
+            transform: translateY(calc(100% + 20px));
+        }
+
+        #chat-messages {
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid var(--border-color);
+            height: 200px;
+            padding: 10px;
+            overflow-y: auto;
+            border-radius: 8px 8px 0 0;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+        
+        #chat-messages-inner {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .chat-message {
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+        
+        .chat-message.system {
+            color: var(--secondary-color);
+            font-style: italic;
+        }
+        
+        .chat-message.private {
+            background-color: rgba(0, 123, 255, 0.1);
+        }
+
+        #chat-input-area {
+            display: flex;
+            border: 1px solid var(--border-color);
+            border-top: none;
+            border-radius: 0 0 8px 8px;
+            background: var(--surface-color);
+        }
+
+        #chat-input {
+            flex-grow: 1;
+            border: none;
+            padding: 10px;
+            font-family: 'Poppins', sans-serif;
+            background: transparent;
+        }
+
+        #chat-input:focus {
+            outline: none;
+        }
+
+        #chat-recipient-select {
+            border: none;
+            border-left: 1px solid var(--border-color);
+            padding: 0 10px;
+            font-family: 'Poppins', sans-serif;
+            background: var(--surface-color);
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -581,15 +643,25 @@
         <div id="fade-overlay"></div>
 
         <div id="game-ui" class="hidden">
-            <div id="health-bar-container" class="status-bar-container">
-                <div id="health-bar" class="status-bar"></div>
-            </div>
-            <div id="stamina-bar-container" class="status-bar-container">
-                <div id="stamina-bar" class="status-bar"></div>
+            <div id="stamina-bar-container">
+                <div id="stamina-bar"></div>
             </div>
             <div id="game-ui-buttons">
                 <button id="leave-lobby-btn" class="btn btn-danger">Leave</button>
                 <button id="delete-lobby-btn" class="btn btn-danger hidden">Delete Lobby</button>
+                <button id="toggle-chat-btn" class="btn">Chat</button>
+            </div>
+        </div>
+
+        <div id="chat-container" class="hidden">
+            <div id="chat-messages">
+                <div id="chat-messages-inner"></div>
+            </div>
+            <div id="chat-input-area">
+                <input type="text" id="chat-input" placeholder="Type a message...">
+                <select id="chat-recipient-select">
+                    <option value="all">To: Everyone</option>
+                </select>
             </div>
         </div>
 
@@ -600,7 +672,6 @@
                 </div>
             </div>
             <div id="action-buttons-zone" class="mobile-control-zone">
-                 <div id="mobile-punch-btn" class="mobile-action-btn">PUNCH</div>
                 <div id="mobile-jump-btn" class="mobile-action-btn">JUMP</div>
                 <div id="mobile-explode-btn" class="mobile-action-btn">EXPLODE</div>
                 <div id="mobile-lock-btn" class="mobile-action-btn">LOCK<br>ANGLE</div>
@@ -644,7 +715,7 @@
     </div>
 
     <script>
-        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector, Query } = Matter;
+        const { Engine, Render, Runner, World, Bodies, Body, Events, Vector } = Matter;
         let engine, world, runner;
         const players = new Map();
         const npcs = new Map();
@@ -674,7 +745,15 @@
         const hostInfoDiv = document.getElementById('host-info');
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
-        const healthBar = document.getElementById('health-bar');
+        
+        // Chat System Elements
+        const toggleChatBtn = document.getElementById('toggle-chat-btn');
+        const chatContainer = document.getElementById('chat-container');
+        const chatMessages = document.getElementById('chat-messages');
+        const chatMessagesInner = document.getElementById('chat-messages-inner');
+        const chatInput = document.getElementById('chat-input');
+        const chatRecipientSelect = document.getElementById('chat-recipient-select');
+        let chatFocus = false;
 
 
         const newUsernameInput = document.getElementById('username-new');
@@ -779,6 +858,117 @@
             showLoadingScreen(isCreating);
             initializePeer(myUsername, isCreating ? LOBBY_PREFIX + lobbyCode : null);
         }
+        
+        /* Chat System Functions */
+        function setupChat() {
+            toggleChatBtn.addEventListener('click', () => {
+                chatContainer.classList.toggle('hidden');
+                if (!chatContainer.classList.contains('hidden')) {
+                    chatInput.focus();
+                }
+            });
+
+            chatInput.addEventListener('focus', () => chatFocus = true);
+            chatInput.addEventListener('blur', () => chatFocus = false);
+
+            chatInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && chatInput.value.trim() !== '') {
+                    sendMessage();
+                    e.preventDefault();
+                }
+            });
+            addSystemMessage('Welcome to the chat!');
+        }
+
+        function sendMessage() {
+            const messageText = chatInput.value.trim();
+            const recipient = chatRecipientSelect.value;
+            
+            if (messageText === '') return;
+
+            const messageData = {
+                type: 'chat-message',
+                sender: { peerId: myPeerId, username: myUsername },
+                recipient: recipient,
+                text: messageText,
+            };
+
+            if (recipient === 'all') {
+                broadcast(messageData);
+                displayChatMessage(messageData);
+            } else {
+                const conn = connections.get(recipient);
+                if (conn) {
+                    conn.send(messageData);
+                }
+                displayChatMessage(messageData);
+            }
+            chatInput.value = '';
+        }
+
+        function displayChatMessage(data) {
+            const { sender, recipient, text } = data;
+            const messageEl = document.createElement('div');
+            messageEl.classList.add('chat-message');
+
+            let fromText;
+            if (recipient === 'all') {
+                fromText = `${sender.username}:`;
+                messageEl.innerHTML = `<b>${fromText}</b> ${text}`;
+            } else {
+                messageEl.classList.add('private');
+                const recipientPlayer = players.get(recipient);
+                const recipientName = recipientPlayer ? recipientPlayer.username : 'Unknown';
+
+                if (sender.peerId === myPeerId) {
+                    // This is a message I sent
+                    fromText = `To ${recipientName}:`;
+                } else {
+                    // This is a message I received
+                    fromText = `From ${sender.username}:`;
+                }
+                 messageEl.innerHTML = `<i>${fromText}</i> ${text}`;
+            }
+
+            chatMessagesInner.prepend(messageEl);
+
+            // Keep scroll at the bottom if it's already there
+            if (chatMessages.scrollTop <= 5) {
+                chatMessages.scrollTop = 0;
+            }
+        }
+        
+        function addSystemMessage(text) {
+             const messageEl = document.createElement('div');
+             messageEl.classList.add('chat-message', 'system');
+             messageEl.textContent = text;
+             chatMessagesInner.prepend(messageEl);
+        }
+
+        function updateRecipientList() {
+            const currentRecipient = chatRecipientSelect.value;
+            
+            // Clear existing options except for 'Everyone'
+            while (chatRecipientSelect.options.length > 1) {
+                chatRecipientSelect.remove(1);
+            }
+
+            players.forEach(player => {
+                if (player.peerId !== myPeerId) {
+                    const option = document.createElement('option');
+                    option.value = player.peerId;
+                    option.textContent = player.username;
+                    chatRecipientSelect.add(option);
+                }
+            });
+            
+            // Try to re-select the previous recipient if they still exist
+            if(Array.from(chatRecipientSelect.options).some(o => o.value === currentRecipient)) {
+                chatRecipientSelect.value = currentRecipient;
+            }
+        }
+        /* End Chat System Functions */
+
 
         function generateDarkColor() {
             const hue = Math.floor(Math.random() * 361);
@@ -825,10 +1015,12 @@
             createWorld();
             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
             createPlayer(myPeerId, username, startPos);
+            updateRecipientList(); // Initialize recipient list
             if (isHost) {
-                spawnNPCs(10); 
+                spawnNPCs(5); 
             }
             setupInputControls();
+            setupChat(); // Initialize chat event listeners
             startAnimationLoop();
         }
 
@@ -854,6 +1046,8 @@
             const playerColor = generateDarkColor();
             const startPos = { x: worldWidth / 2, y: worldHeight - 200 };
             createPlayer(conn.peer, newUsername, startPos, true, playerColor);
+            addSystemMessage(`${newUsername} has joined the lobby.`);
+            updateRecipientList();
             setupConnection(conn);
         }
 
@@ -868,22 +1062,11 @@
                         position: p.body.position,
                         isTransformed: p.isTransformed,
                         direction: p.direction,
-                        color: p.color,
-                        health: p.health
+                        color: p.color
                     }));
-                     const allNpcsInfo = Array.from(npcs.values()).map(n => ({
-                        peerId: n.peerId,
-                        username: n.username,
-                        position: n.body.position,
-                        isNpc: true,
-                        direction: n.direction,
-                        color: n.color,
-                        health: n.health
-                    }));
-
                     const allPeerIds = [myPeerId, ...Array.from(connections.keys())];
 
-                    conn.send({ type: 'welcome', players: allPlayersInfo, npcs: allNpcsInfo, peerIds: allPeerIds });
+                    conn.send({ type: 'welcome', players: allPlayersInfo, peerIds: allPeerIds });
                     
                     const newPlayerInfo = allPlayersInfo.find(p => p.peerId === conn.peer);
                     broadcast({ type: 'new-player-joined', playerInfo: newPlayerInfo }, conn.peer);
@@ -894,9 +1077,14 @@
         }
 
         function handleDisconnect(peerId) {
+            const player = players.get(peerId);
+            if(player) {
+                addSystemMessage(`${player.username} has left the lobby.`);
+            }
             connections.delete(peerId);
             removePlayer(peerId);
             if (isHost) updateLobbyControls();
+            updateRecipientList();
             broadcast({ type: 'player-leave', peerId });
         }
 
@@ -917,11 +1105,11 @@
             players.clear();
             connections.clear();
             gameObjects.clear();
-            npcs.clear();
             worldContainer.innerHTML = '';
             offScreenIndicatorsContainer.innerHTML = '';
             isHost = false;
             gameUi.classList.add('hidden');
+            chatContainer.classList.add('hidden');
             mobileControls.classList.add('hidden');
             hostInfoDiv.classList.add('hidden');
             sessionStorage.removeItem(SESSION_KEY);
@@ -953,21 +1141,15 @@
 
         function handleData(data, peerId) {
             switch (data.type) {
+                case 'chat-message':
+                    displayChatMessage(data);
+                    break;
                 case 'player-update':
-                case 'npc-update':
-                    updateCharacter(data);
+                    updatePlayer(data);
                     break;
                 case 'player-leave':
                     removePlayer(data.peerId);
-                    break;
-                case 'punch-start':
-                     handlePunchStart(data);
-                     break;
-                case 'damage-dealt':
-                     handleDamageDealt(data);
-                     break;
-                case 'knockout':
-                    handleKnockout(data.targetId);
+                    updateRecipientList();
                     break;
                 case 'glide-particle':
                     createWindParticle(data.position, data.direction, false);
@@ -981,27 +1163,23 @@
                 case 'welcome':
                     menuView.classList.add('hidden');
                     startGame(myUsername);
-                     data.players.forEach(pInfo => {
+                    data.players.forEach(pInfo => {
                         if (pInfo.peerId !== myPeerId) {
-                            createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color, false, pInfo.health);
+                            createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
                         } else {
                             const me = players.get(myPeerId);
-                            if (me) {
-                                me.color = pInfo.color;
-                                me.health = pInfo.health;
-                            }
+                            if (me) me.color = pInfo.color;
                         }
                     });
-                     data.npcs.forEach(npcInfo => {
-                        createPlayer(npcInfo.peerId, npcInfo.username, npcInfo.position, true, npcInfo.color, true, npcInfo.health);
-                    });
-
+                    updateRecipientList();
                     data.peerIds.forEach(connectToPeer);
                     break;
                 case 'new-player-joined':
                     const pInfo = data.playerInfo;
                     if (pInfo && pInfo.peerId !== myPeerId && !players.has(pInfo.peerId)) {
-                        createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color, false, pInfo.health);
+                        createPlayer(pInfo.peerId, pInfo.username, pInfo.position, true, pInfo.color);
+                        updateRecipientList();
+                         addSystemMessage(`${pInfo.username} has joined the lobby.`);
                     }
                     break;
             }
@@ -1025,14 +1203,11 @@
                 const deltaTime = currentTime - lastTime;
                 lastTime = currentTime;
                 processPlayerInput(deltaTime);
-                if (isHost) {
-                     updateNpcBehavior(deltaTime);
-                }
+                updateNpcBehavior(deltaTime);
                 updatePlayerElements();
                 updateCamera();
                 updateOffScreenIndicators();
                 updateStamina(deltaTime);
-                 updateHealth();
                 updatePlayerLayering();
                 const myPlayer = players.get(myPeerId);
                 if (myPlayer && myPlayer.body) {
@@ -1043,24 +1218,8 @@
                         velocity: myPlayer.body.velocity,
                         isTransformed: myPlayer.isTransformed,
                         direction: myPlayer.direction,
-                        color: myPlayer.color,
-                        health: myPlayer.health,
-                        isDead: myPlayer.isDead
+                        color: myPlayer.color
                     });
-                }
-                 if(isHost) {
-                    const npcUpdates = Array.from(npcs.values()).map(npc => ({
-                        type: 'npc-update',
-                        peerId: npc.peerId,
-                        position: npc.body.position,
-                        velocity: npc.body.velocity,
-                        direction: npc.direction,
-                        health: npc.health,
-                        isDead: npc.isDead
-                    }));
-                    if(npcUpdates.length > 0) {
-                         broadcast({type: 'batch-npc-update', updates: npcUpdates});
-                    }
                 }
             });
             Events.on(engine, 'collisionStart', (event) => {
@@ -1068,11 +1227,10 @@
                 for (const pair of pairs) {
                     const playerBody = getPlayerBodyFromPair(pair);
                     if (!playerBody) continue;
-                    const character = players.get(playerBody.label.split('_')[1]) || npcs.get(playerBody.label.split('_')[1]);
-                    if (!character) continue;
-
-                    if ((pair.bodyA.isStatic || pair.bodyB.isStatic) && pair.collision.normal.y < -0.5) {
-                         character.onGround = true;
+                    const player = players.get(playerBody.label.split('_')[1]) || npcs.get(playerBody.label.split('_')[1]);
+                    if (!player) continue;
+                    if (pair.bodyA.isStatic || pair.bodyB.isStatic) {
+                        player.onGround = true;
                     }
                 }
             });
@@ -1096,13 +1254,14 @@
             worldContainer.appendChild(el);
             gameObjects.set(id, { body, element: el });
         }
-function createPlayer(peerId, username, position, isInitialSpawn = false, color = null, isNpc = false, initialHealth = 100) {
+function createPlayer(peerId, username, position, isInitialSpawn = false, color = null, isNpc = false) {
     if (players.has(peerId) || npcs.has(peerId)) return;
 
     const playerBody = Bodies.rectangle(position.x, position.y, 40, 60, {
         inertia: Infinity,
         frictionAir: 0.02,
         friction: 0.1,
+        collisionFilter: { group: -1 },
         label: `player_${peerId}`
     });
     World.add(world, playerBody);
@@ -1113,8 +1272,8 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
     const displayName = isNpc ? `[NPC] ${username}` : username;
     playerEl.innerHTML = `
         <div class="player-sprite-wrapper">
-            <img src="../images/player-idle3.png" class="player-sprite front" alt="Player">
-            <img src="../images/player-idle3.png" class="player-sprite back" alt="Player">
+            <img src="./images/player-idle1.png" class="player-sprite front" alt="Player">
+            <img src="./images/player-idle1.png" class="player-sprite back" alt="Player">
         </div>
         <div class="player-name">${displayName}</div>`;
     worldContainer.appendChild(playerEl);
@@ -1129,34 +1288,25 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
     if (!isNpc) {
         offScreenIndicatorsContainer.appendChild(indicatorEl);
     }
-    const character = {
+    const player = {
         peerId, body: playerBody, element: playerEl, indicator: indicatorEl, username,
         isTransformed: false, isIdle: true, isWalking: false, onGround: false,
         direction: 'right', isDead: false, isSprinting: false, maxStamina: 100,
         currentStamina: 100, staminaDrainRate: 25, staminaRegenRate: 15,
         lastMoveTimestamp: Date.now(), sideLock: false, sprintModeActive: false,
         color: color || generateDarkColor(),
-        isNpc: isNpc,
-        maxHealth: 100,
-        health: initialHealth,
-        isAttacking: false,
-        isCharging: false,
-        chargeLevel: 0,
-        attackCooldown: 0,
-        lastAttackTimestamp: 0
+        isNpc: isNpc
     };
 
     if (isNpc) {
-        character.npcState = {
+        player.npcState = {
             moveDirection: Math.random() < 0.5 ? -1 : 1,
-            moveTimer: Math.random() * 3000 + 2000,
-            jumpTimer: Math.random() * 5000 + 3000,
-            attackTimer: Math.random() * 2000 + 1000,
-            target: null,
+            moveTimer: Math.random() * 3000 + 2000, 
+            jumpTimer: Math.random() * 5000 + 3000   
         };
-        npcs.set(peerId, character);
+        npcs.set(peerId, player);
     } else {
-        players.set(peerId, character);
+        players.set(peerId, player);
     }
 
     if (!isInitialSpawn) {
@@ -1165,64 +1315,50 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
     }
 }
         function removePlayer(peerId) {
-            const player = players.get(peerId) || npcs.get(peerId);
+            const player = players.get(peerId);
             if (player) {
                 if (player.body) World.remove(world, player.body);
                 if (player.element) player.element.remove();
                 if (player.indicator) player.indicator.remove();
                 players.delete(peerId);
-                npcs.delete(peerId);
             }
         }
 
-       function updateCharacter(data) {
-            let character = players.get(data.peerId) || npcs.get(data.peerId);
-
-             if (!character && data.username && !isHost) { // Only clients create characters on update
-                createPlayer(data.peerId, data.username, data.position, true, data.color, data.isNpc, data.health);
-                character = players.get(data.peerId) || npcs.get(data.peerId);
+        function updatePlayer(data) {
+            let player = players.get(data.peerId);
+            if (!player && data.username) {
+                createPlayer(data.peerId, data.username, data.position, true, data.color);
+                player = players.get(data.peerId);
             }
-
-            if (character && character.body) {
-                // Instantly teleport if the character is dead, otherwise interpolate
-                 if (data.isDead && !character.isDead) {
-                    handleKnockout(data.peerId);
+            if (player && player.body && !player.isDead) {
+                Body.setPosition(player.body, data.position);
+                Body.setVelocity(player.body, data.velocity || { x: 0, y: 0 });
+                player.color = data.color || player.color;
+                if (player.direction !== data.direction) {
+                    player.direction = data.direction || 'right';
                 }
-                character.isDead = data.isDead;
-
-                if (!character.isDead) {
-                     Body.setPosition(character.body, data.position);
-                     Body.setVelocity(character.body, data.velocity || { x: 0, y: 0 });
-                }
-
-                character.health = data.health;
-                character.color = data.color || character.color;
-
-                if (character.direction !== data.direction) {
-                    character.direction = data.direction || 'right';
-                }
-                 if (character.isTransformed !== data.isTransformed) {
-                    togglePlayerTransformation(character, data.isTransformed);
+                if (player.isTransformed !== data.isTransformed) {
+                    togglePlayerTransformation(player, data.isTransformed);
                 }
             }
         }
 
         function updatePlayerElements() {
             const allCharacters = [...players.values(), ...npcs.values()];
-            for (const character of allCharacters) {
-                if (!character.body) continue;
-                const { position, angle } = character.body;
-                if (!character.isTransformed) {
-                    character.element.style.width = '40px';
-                    character.element.style.height = '60px';
+            for (const player of allCharacters) {
+                if (!player.body) continue;
+                const { position, angle } = player.body;
+                if (!player.isTransformed) {
+                    player.element.style.width = '40px';
+                    player.element.style.height = '60px';
                 } else {
                     const diameter = 25 * 2;
-                    character.element.style.width = `${diameter}px`;
-                    character.element.style.height = `${diameter}px`;
+                    player.element.style.width = `${diameter}px`;
+                    player.element.style.height = `${diameter}px`;
                 }
-                character.element.style.left = `${position.x}px`;
-                character.element.style.top = `${position.y}px`;
-                character.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
+                player.element.style.left = `${position.x}px`;
+                player.element.style.top = `${position.y}px`;
+                player.element.style.transform = `translate(-50%, -50%) rotate(${angle}rad)`;
             }
         }
 
@@ -1293,7 +1429,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 if (p.peerId === myPeerId) return;
 
                 const indicator = p.indicator;
-                if (!indicator || !p.body) return;
+                if (!indicator) return;
 
                 const screenX = (p.body.position.x - camera.x) * camera.scale + centerX;
                 const screenY = (p.body.position.y - camera.y) * camera.scale + centerY;
@@ -1316,24 +1452,10 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             });
         }
 
-         function updateHealth() {
-            const myPlayer = players.get(myPeerId);
-            if (!myPlayer) return;
-            const healthPercentage = (myPlayer.health / myPlayer.maxHealth) * 100;
-            healthBar.style.width = `${healthPercentage}%`;
-        }
-
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer) return;
-
-            // Cooldowns
-            if (myPlayer.attackCooldown > 0) {
-                 myPlayer.attackCooldown -= deltaTime;
-            }
-
-            const isTryingToSprint = (keys['ShiftLeft'] || keys['ShiftRight'] || myPlayer.sprintModeActive) && (keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight']);
-             
+            const isTryingToSprint = keys['ShiftLeft'] || keys['ShiftRight'] || myPlayer.sprintModeActive;
             if (!myPlayer.isSprinting && !isTryingToSprint) {
                 myPlayer.currentStamina = Math.min(myPlayer.maxStamina, myPlayer.currentStamina + myPlayer.staminaRegenRate * (deltaTime / 1000));
             }
@@ -1349,39 +1471,29 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             } else {
                 document.addEventListener('keydown', handleKeyDown);
                 document.addEventListener('keyup', handleKeyUp);
-                 document.addEventListener('mousedown', handleMouseDown);
-                document.addEventListener('mouseup', handleMouseUp);
             }
         }
 
-        function handleKeyDown(e) { keys[e.code] = true; handleSinglePressInput(e); }
+        function handleKeyDown(e) { 
+             if (chatFocus) return;
+            keys[e.code] = true; 
+            handleSinglePressInput(e); 
+        }
         function handleKeyUp(e) { 
+            if (chatFocus && e.key === 'Escape') {
+                chatContainer.classList.add('hidden');
+                chatInput.blur();
+            } else if (!chatFocus && e.key === 'Enter') {
+                 chatContainer.classList.remove('hidden');
+                 chatInput.focus();
+            }
             keys[e.code] = false; 
-             if (e.code === 'KeyF') {
-                handleAttackEnd();
-            }
         }
-        function handleMouseDown(e) {
-            if (e.button === 0) { // Left-click
-                handleAttackStart();
-            }
-        }
-        function handleMouseUp(e) {
-            if (e.button === 0) {
-                 handleAttackEnd();
-            }
-        }
-
 
         function processPlayerInput(deltaTime) {
             const myPlayer = players.get(myPeerId);
             if (!myPlayer || myPlayer.isDead) return;
             const body = myPlayer.body;
-
-             if (myPlayer.isCharging) {
-                myPlayer.chargeLevel = Math.min(100, myPlayer.chargeLevel + deltaTime * 0.2); // Charge up over 0.5s
-            }
-
             const isKeyboardSprinting = keys['ShiftLeft'] || keys['ShiftRight'];
             const isMovingHorizontally = keys['KeyA'] || keys['ArrowLeft'] || keys['KeyD'] || keys['ArrowRight'];
             if (isMovingHorizontally) {
@@ -1394,7 +1506,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                 if (keys['KeyD'] || keys['ArrowRight']) Body.applyForce(body, body.position, { x: moveForce, y: 0 });
                 if (keys['KeyW'] || keys['ArrowUp']) Body.applyForce(body, body.position, { x: 0, y: -moveForce });
                 if (keys['KeyS'] || keys['ArrowDown']) Body.applyForce(body, body.position, { x: 0, y: moveForce });
-            } else if (!myPlayer.isAttacking) {
+            } else {
                 let moveSpeed = 5;
                 if ((isKeyboardSprinting || myPlayer.sprintModeActive) && myPlayer.currentStamina > 0 && isMovingHorizontally) {
                     moveSpeed = 9;
@@ -1418,7 +1530,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
                     Body.setVelocity(body, { x: moveSpeed, y: body.velocity.y });
                     if (!myPlayer.sideLock) myPlayer.direction = 'right';
                 } else if (myPlayer.onGround) {
-                     Body.setVelocity(body, { x: body.velocity.x * 0.9, y: body.velocity.y });
+                    Body.setVelocity(body, { x: 0, y: body.velocity.y });
                 }
             }
         }
@@ -1429,9 +1541,6 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             if (!myPlayer || myPlayer.isDead) return;
             if (e.code === 'Space' || e.code === 'KeyW' || e.code === 'ArrowUp') {
                 performJump();
-            }
-            if (e.code === 'KeyF') {
-                 handleAttackStart();
             }
             if (e.code === 'KeyB') {
                 togglePlayerTransformation(myPlayer);
@@ -1444,14 +1553,14 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             }
         }
 
-       function performJump(character) {
-        character = character || players.get(myPeerId); 
-        if (character && !character.isDead && !character.isTransformed && character.onGround) {
-            const jumpVelocity = -16;
-            Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
-            character.onGround = false;
-        }
+        function performJump(character) {
+    character = character || players.get(myPeerId); 
+    if (character && !character.isDead && !character.isTransformed && character.onGround) {
+        const jumpVelocity = -16;
+        Body.setVelocity(character.body, { x: character.body.velocity.x, y: jumpVelocity });
+        character.onGround = false;
     }
+}
         function toggleAngleLock() {
             const myPlayer = players.get(myPeerId);
             if (myPlayer) {
@@ -1464,7 +1573,6 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             const joystickZone = document.getElementById('joystick-zone');
             const joystickNub = document.getElementById('joystick-nub');
             const jumpButton = document.getElementById('mobile-jump-btn');
-            const punchButton = document.getElementById('mobile-punch-btn');
             const explodeButton = document.getElementById('mobile-explode-btn');
             const lockButton = document.getElementById('mobile-lock-btn');
             let joystickActive = false;
@@ -1529,144 +1637,9 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
             joystickZone.addEventListener('touchend', resetJoystick);
             joystickZone.addEventListener('touchcancel', resetJoystick);
             jumpButton.addEventListener('touchstart', (e) => { e.preventDefault(); performJump(); });
-            punchButton.addEventListener('touchstart', (e) => { e.preventDefault(); handleAttackStart(); });
-            punchButton.addEventListener('touchend', (e) => { e.preventDefault(); handleAttackEnd(); });
             explodeButton.addEventListener('touchstart', (e) => { e.preventDefault(); respawnPlayer(); });
             lockButton.addEventListener('touchstart', (e) => { e.preventDefault(); toggleAngleLock(); });
         }
-
-        // --- COMBAT SYSTEM FUNCTIONS ---
-
-        function handleAttackStart() {
-            const myPlayer = players.get(myPeerId);
-            if (!myPlayer || myPlayer.isDead || myPlayer.isAttacking || myPlayer.isCharging || myPlayer.attackCooldown > 0 || myPlayer.currentStamina < 20) {
-                return;
-            }
-            myPlayer.isCharging = true;
-            myPlayer.chargeLevel = 0;
-        }
-
-        function handleAttackEnd() {
-            const myPlayer = players.get(myPeerId);
-            if (!myPlayer || !myPlayer.isCharging) {
-                return;
-            }
-            myPlayer.isCharging = false;
-            performPunch(myPlayer);
-        }
-
-         function performPunch(character, chargeLevel) {
-            if (character.isDead || character.isAttacking || character.attackCooldown > 0 || character.currentStamina < 20) {
-                return;
-            }
-
-            const isMyPlayer = character.peerId === myPeerId;
-            const finalCharge = isMyPlayer ? character.chargeLevel : chargeLevel;
-            
-            character.isAttacking = true;
-            character.attackCooldown = 500; // 0.5s cooldown
-            if (isMyPlayer) {
-                character.currentStamina -= 20;
-                broadcast({ type: 'punch-start', peerId: myPeerId, chargeLevel: finalCharge });
-            }
-
-            setTimeout(() => {
-                if(isHost && !character.isNpc){
-                     // Host checks for hits for all player punches
-                    checkForHit(character, finalCharge);
-                } else if(isMyPlayer){
-                    // Clients can speculatively check for their own hits to feel responsive
-                    // But the host will have the final say
-                    checkForHit(character, finalCharge);
-                }
-                 
-                setTimeout(() => {
-                    character.isAttacking = false;
-                    character.chargeLevel = 0;
-                }, 150); // Punch active time
-            }, 100); // Wind-up time
-        }
-
-        function checkForHit(attacker, chargeLevel) {
-             if (!isHost) return; // Only host validates hits
-
-            const attackRange = 60;
-            const attackWidth = 30;
-            const directionVector = attacker.direction === 'right' ? { x: 1, y: 0 } : { x: -1, y: 0 };
-            const attackCenter = {
-                x: attacker.body.position.x + directionVector.x * (20 + attackRange / 2),
-                y: attacker.body.position.y
-            };
-            
-            const hitBox = {
-                min: { x: attackCenter.x - attackWidth / 2, y: attackCenter.y - 30 },
-                max: { x: attackCenter.x + attackWidth / 2, y: attackCenter.y + 30 }
-            };
-
-            const allTargets = [...players.values(), ...npcs.values()];
-            const bodiesToCheck = allTargets.map(t => t.body).filter(b => b && b.id !== attacker.body.id);
-            const hitTargets = Query.region(bodiesToCheck, hitBox);
-            
-            hitTargets.forEach(hitBody => {
-                const victim = allTargets.find(t => t.body.id === hitBody.id);
-                if (victim && !victim.isDead) {
-                    const damage = 5 + (chargeLevel / 100) * 20; // Base 5, max 25
-                    const knockbackForce = 0.01 + (chargeLevel / 100) * 0.05;
-
-                    const knockbackVector = {
-                        x: directionVector.x * knockbackForce,
-                        y: -0.01 // Slight upward knock
-                    };
-
-                    victim.health = Math.max(0, victim.health - damage);
-                    Body.applyForce(victim.body, victim.body.position, knockbackVector);
-                    
-                    broadcast({type: 'damage-dealt', targetId: victim.peerId, damage, knockback: knockbackVector, attackerId: attacker.peerId });
-
-                    if (victim.health <= 0) {
-                        handleKnockout(victim.peerId, true); // Host handles knockout
-                        broadcast({ type: 'knockout', targetId: victim.peerId });
-                    }
-                }
-            });
-        }
-
-
-        function handlePunchStart(data) {
-            const character = players.get(data.peerId) || npcs.get(data.peerId);
-            if (character && character.peerId !== myPeerId) {
-                performPunch(character, data.chargeLevel);
-            }
-        }
-
-        function handleDamageDealt(data) {
-             if (isHost) return; // Host has already applied this
-
-            const victim = players.get(data.targetId) || npcs.get(data.targetId);
-            if(victim) {
-                victim.health = Math.max(0, victim.health - data.damage);
-                Body.applyForce(victim.body, victim.body.position, data.knockback);
-
-                if (data.targetId === myPeerId) {
-                    triggerScreenShake();
-                }
-            }
-        }
-        
-         function handleKnockout(targetId, fromHost = false) {
-             if (!fromHost && isHost) return;
-
-            const character = players.get(targetId) || npcs.get(targetId);
-            if (character && !character.isDead) {
-                character.isDead = true;
-                character.element.classList.add('dead');
-                // Make body limp
-                Body.setStatic(character.body, false);
-                 Body.setInertia(character.body, 100); 
-                character.body.collisionFilter.group = -1; // Prevent interaction
-            }
-        }
-
 
         function createWindParticle(position, direction, isMyPlayer) {
             if (!isMyPlayer && !showOtherPlayerParticles) return;
@@ -1680,7 +1653,7 @@ function createPlayer(peerId, username, position, isInitialSpawn = false, color 
         }
 
 function startAnimationLoop() {
-    let animTimer = 0;
+    let idleFrame = 0, walkFrame = 0, animTimer = 0;
     const loopTime = 50;
     const IDLE_FPS = 2, WALK_FPS = 8, SPRINT_FPS = 14;
 
@@ -1689,7 +1662,7 @@ function startAnimationLoop() {
         const allCharacters = [...players.values(), ...npcs.values()];
 
         for (const player of allCharacters) {
-            if (!player.body || player.isTransformed || player.isDead) continue;
+            if (!player.body || player.isTransformed) continue;
 
             player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
             player.isIdle = player.onGround && !player.isWalking;
@@ -1701,22 +1674,44 @@ function startAnimationLoop() {
             const sprites = player.element.querySelectorAll('.player-sprite');
             if (sprites.length < 2) continue;
 
-            let currentSpritePath = '../images/player-idle3.png'; // Default idle
+            let currentSpritePath;
 
-            if(player.isAttacking || player.isCharging) {
-                 if(player.chargeLevel > 50) {
-                     currentSpritePath = '../images/player-punch2.png'; // Full charge pose
-                 } else {
-                     currentSpritePath = '../images/player-punch1.png'; // Wind-up pose
-                 }
-            } else if (!player.onGround) {
-                currentSpritePath = '../images/player-idle3.png'; // Using idle for jump/fall as per available frames
-            } else if (player.isWalking || player.isSprinting) {
-                currentSpritePath = '../images/player-idle3.png'; // Using idle for walk/sprint
+            if (!player.onGround) {
+                if (player.body.velocity.y < -0.1) {
+                    currentSpritePath = './images/player-jump.png';
+                } else {
+                    currentSpritePath = './images/player-fall.png';
+                }
+            } else {
+                let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
+                const frameDuration = 1000 / currentFps;
+
+                if (animTimer >= frameDuration) {
+                    if (player.isWalking || player.isSprinting) {
+                        walkFrame = (walkFrame + 1) % 4;
+                    } else {
+                        idleFrame = (idleFrame + 1) % 2;
+                    }
+                    if (player.peerId === myPeerId) { 
+                        animTimer = 0;
+                    }
+                }
+
+                if (player.isWalking || player.isSprinting) {
+                    currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
+                } else {
+                    currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
+                }
             }
-            
+            if (animTimer >= 1000) animTimer = 0;
+
             sprites[0].src = currentSpritePath;
             sprites[1].src = currentSpritePath;
+
+            if (!player.isNpc && player.peerId === myPeerId && !player.onGround && Math.abs(player.body.velocity.y) > 1) {
+                broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
+                createWindParticle(player.body.position, player.direction, true);
+            }
         }
     }, loopTime);
 }
@@ -1785,8 +1780,6 @@ function startAnimationLoop() {
             
             const oldPosition = { ...myPlayer.body.position };
             const currentUsername = myPlayer.username;
-            const myColor = myPlayer.color;
-
             
             broadcast({ type: 'respawn-explosion', position: oldPosition });
             createRespawnParticles(oldPosition);
@@ -1800,7 +1793,7 @@ function startAnimationLoop() {
                 const newSpawnPosition = { x: worldWidth / 2 + (Math.random() * 400 - 200), y: worldHeight - 200 };
                 createSpawnInParticles(newSpawnPosition);
                 setTimeout(() => {
-                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false, myColor);
+                    createPlayer(myPeerId, currentUsername, newSpawnPosition, false, myPlayer.color);
                     camera.targetScale = 1.0;
                     setTimeout(() => {
                         worldContainer.style.transition = 'transform 0.1s linear';
@@ -1809,7 +1802,6 @@ function startAnimationLoop() {
             }, 1000);
         }
 function spawnNPCs(count) {
-    if(!isHost) return;
     for (let i = 0; i < count; i++) {
         const npcId = `npc-${Date.now()}-${i}`;
         const name = npcNames[Math.floor(Math.random() * npcNames.length)];
@@ -1823,66 +1815,25 @@ function spawnNPCs(count) {
 function updateNpcBehavior(deltaTime) {
     if (!isHost) return;
 
-    const allPlayers = Array.from(players.values());
-
     for (const npc of npcs.values()) {
         if (!npc.body || npc.isDead) continue;
         
         npc.npcState.moveTimer -= deltaTime;
         npc.npcState.jumpTimer -= deltaTime;
-        npc.npcState.attackTimer -= deltaTime;
-         if (npc.attackCooldown > 0) npc.attackCooldown -= deltaTime;
 
-         // Find nearest player
-        let nearestPlayer = null;
-        let minDistance = 300; // Only engage if player is within this range
-        allPlayers.forEach(p => {
-            if(!p.isDead) {
-                const distance = Vector.magnitude(Vector.sub(p.body.position, npc.body.position));
-                if(distance < minDistance) {
-                    minDistance = distance;
-                    nearestPlayer = p;
-                }
-            }
-        });
-        npc.npcState.target = nearestPlayer;
-
-
-        if(npc.npcState.target) {
-            // NPC has a target, move towards them and attack
-            const directionToTarget = npc.npcState.target.body.position.x - npc.body.position.x;
-            npc.direction = directionToTarget > 0 ? 'right' : 'left';
-            
-            // Move towards player
-             const moveSpeed = 3;
-             Body.setVelocity(npc.body, { x: moveSpeed * (directionToTarget > 0 ? 1 : -1), y: npc.body.velocity.y });
-
-            // Attack if in range and cooldown is over
-            if(minDistance < 80 && npc.attackCooldown <= 0) {
-                 performPunch(npc, Math.random() * 50); // NPCs do a random-charge punch
-                 broadcast({ type: 'punch-start', peerId: npc.peerId, chargeLevel: 50 });
-                 npc.attackCooldown = 1500; // NPC attack cooldown
-            }
-
-        } else {
-             // Wander randomly if no target
-            if (npc.npcState.moveTimer <= 0) {
-                npc.npcState.moveDirection = Math.random() < 0.2 ? 0 : (Math.random() < 0.5 ? -1 : 1);
-                npc.npcState.moveTimer = Math.random() * 4000 + 3000;
-            }
-             const moveSpeed = 2;
-             Body.setVelocity(npc.body, { x: moveSpeed * npc.npcState.moveDirection, y: npc.body.velocity.y });
-             if(npc.npcState.moveDirection !== 0) {
-                 npc.direction = npc.npcState.moveDirection > 0 ? 'right' : 'left';
-             }
+        if (npc.npcState.moveTimer <= 0) {
+            npc.npcState.moveDirection *= -1;
+            npc.npcState.moveTimer = Math.random() * 4000 + 3000;
         }
-       
 
         if (npc.npcState.jumpTimer <= 0) {
             performJump(npc);
             npc.npcState.jumpTimer = Math.random() * 8000 + 5000;
         }
 
+        const moveSpeed = 3;
+        Body.setVelocity(npc.body, { x: moveSpeed * npc.npcState.moveDirection, y: npc.body.velocity.y });
+        npc.direction = npc.npcState.moveDirection > 0 ? 'right' : 'left';
     }
 }
         function showMessage(title, message, onOkCallback, options = {}) {
