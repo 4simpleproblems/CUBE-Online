@@ -20,6 +20,8 @@
             --secondary-hover-color: #5a6268;
             --danger-color: #dc3545;
             --danger-hover-color: #c82333;
+            --success-color: #28a745;
+            --success-hover-color: #218838;
             --stamina-bar-color: #28a745;
         }
 
@@ -124,6 +126,11 @@
         @keyframes pulse {
             50% { transform: scale(1.15); }
         }
+        
+        @keyframes modal-fade-in {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
 
         .player-sprite-wrapper {
             width: 100%;
@@ -173,45 +180,125 @@
         }
         #fade-overlay.active { opacity: 1; }
 
+        .hidden { display: none !important; }
+
         .ui-view {
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            background-color: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(5px);
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             z-index: 30;
+            padding: 20px;
+            box-sizing: border-box;
+            background: #e9ebee;
+        }
+
+        #menu-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            background: var(--surface-color);
+            padding: 25px;
+            border-radius: 16px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            width: 100%;
+            max-width: 420px;
             text-align: center;
-            padding: 10px;
+        }
+
+        #menu-container h1 {
+            font-size: 2.2rem;
+            margin: 0 0 10px 0;
+            color: var(--primary-text-color);
+        }
+
+        .menu-input {
+            width: 100%;
+            padding: 14px;
+            font-family: 'Poppins', sans-serif;
+            font-size: 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 10px;
+            box-sizing: border-box;
+            text-align: center;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .menu-input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.25);
+        }
+
+        .join-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .menu-button {
+            width: 100%;
+            padding: 14px 28px;
+            font-family: 'Poppins', sans-serif;
+            font-weight: bold;
+            font-size: 1.1rem;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
         }
         
-        .hidden { display: none !important; }
-
-        .ui-view h1 {
-            font-size: 2.5rem;
-            margin-bottom: 25px;
-            color: var(--primary-text-color);
+        .menu-button:active {
+            transform: scale(0.98);
         }
 
-        .input-field {
-            padding: 12px;
+        #join-lobby-btn-new {
+            background-color: var(--accent-color);
+            color: white;
+        }
+        #join-lobby-btn-new:hover {
+            background-color: var(--accent-hover-color);
+        }
+
+        .create-lobby-actions {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: var(--secondary-color);
+        }
+        
+        #create-lobby-btn-new {
+            background: none;
+            border: none;
+            color: var(--accent-color);
             font-family: 'Poppins', sans-serif;
-            border: 2px solid var(--border-color);
-            background-color: var(--surface-color);
-            color: var(--primary-text-color);
-            text-align: center;
-            border-radius: 6px;
-            margin-bottom: 15px;
-            width: 80%;
-            max-width: 300px;
-            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            text-decoration: underline;
+            padding: 5px;
+            font-size: 0.9rem;
+        }
+        
+        #create-lobby-btn-new:hover {
+            color: var(--accent-hover-color);
         }
 
+        @media (min-width: 500px) {
+            .join-actions {
+                flex-direction: row;
+                gap: 10px;
+            }
+            #lobby-code-input-new {
+                flex-grow: 3;
+            }
+            #join-lobby-btn-new {
+                flex-grow: 2;
+            }
+        }
+        
         .btn {
             padding: 12px 24px;
             font-family: 'Poppins', sans-serif;
@@ -224,16 +311,17 @@
             text-shadow: none;
             margin: 5px;
             font-size: 1rem;
-            transition: background-color 0.2s ease;
-            width: 80%;
-            max-width: 300px;
+            transition: background-color 0.2s, transform 0.1s;
+            width: auto;
         }
-        
         .btn:hover { background-color: var(--accent-hover-color); }
-        .btn-secondary { background-color: var(--secondary-color); color: white; }
-        .btn-secondary:hover { background-color: var(--secondary-hover-color); }
+        .btn:active { transform: scale(0.98); }
+        
         .btn-danger { background-color: var(--danger-color); }
         .btn-danger:hover { background-color: var(--danger-hover-color); }
+
+        .btn-success { background-color: var(--success-color); }
+        .btn-success:hover { background-color: var(--success-hover-color); }
 
         #game-ui {
             position: absolute;
@@ -246,7 +334,6 @@
         }
 
         #game-ui-buttons { display: flex; gap: 10px; }
-        #game-ui-buttons .btn { width: auto; }
 
         #stamina-bar-container {
             width: 200px;
@@ -301,15 +388,50 @@
 
         #message-box {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.6); display: flex;
-            align-items: center; justify-content: center; z-index: 40;
+            background-color: rgba(0,0,0,0.6);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 40;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.2s ease-in-out;
         }
+        #message-box.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
         #message-box-content {
-            background-color: var(--surface-color); color: var(--primary-text-color); padding: 30px;
-            border: 2px solid var(--border-color); border-radius: 8px; text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2); max-width: 90%;
+            background-color: var(--surface-color);
+            color: var(--primary-text-color);
+            padding: 20px 25px;
+            border-radius: 12px;
+            text-align: center;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+            max-width: 90%;
+            width: 400px;
+            transition: transform 0.2s ease-in-out;
         }
-        #message-box-ok { margin-top: 20px; width: auto; }
+        #message-box.visible #message-box-content {
+            animation: modal-fade-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        #message-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin: 0 0 10px 0;
+        }
+
+        #message-text {
+            font-size: 1rem;
+            color: var(--secondary-color);
+            line-height: 1.5;
+            margin: 0;
+        }
+
+        #message-box-ok {
+            margin-top: 25px;
+            padding: 10px 30px;
+        }
 
         #mobile-controls {
             position: fixed;
@@ -385,7 +507,6 @@
             border-color: #1e7e34;
         }
 
-        /* NEW: Styles for the completely remade indicator */
         .compass-indicator {
             position: absolute;
             z-index: 26;
@@ -394,7 +515,7 @@
             flex-direction: column;
             align-items: center;
             transition: top 0.1s linear, left 0.1s linear, opacity 0.3s ease;
-            transform: translate(-50%, -50%); /* Center the element on its coordinates */
+            transform: translate(-50%, -50%);
         }
 
         .indicator-dot {
@@ -424,7 +545,6 @@
             transition: opacity 0.3s ease;
         }
         
-        /* Mobile Horizontal Orientation */
         @media (max-height: 500px) and (orientation: landscape) {
             #game-ui {
                 left: auto;
@@ -464,21 +584,20 @@
             </div>
         </div>
 
-        <div id="login-view" class="ui-view">
-            <h1>human simulator</h1>
-            <input type="text" id="username" class="input-field" placeholder="Enter Username">
-            <button id="create-lobby-btn" class="btn">Create Lobby</button>
-            <button id="show-join-view-btn" class="btn btn-secondary">Join Lobby</button>
+        <div id="menu-view" class="ui-view">
+            <div id="menu-container">
+                <h1>human simulator</h1>
+                <input type="text" id="username-new" class="menu-input" placeholder="Enter Your Username">
+                <div class="join-actions">
+                    <input type="text" id="lobby-code-input-new" class="menu-input" placeholder="Enter Lobby Code">
+                    <button id="join-lobby-btn-new" class="menu-button">Join Lobby</button>
+                </div>
+                <div class="create-lobby-actions">
+                    or <button id="create-lobby-btn-new">Create a New Lobby</button>
+                </div>
+            </div>
         </div>
         
-        <div id="join-view" class="ui-view hidden">
-              <h1>Join a Lobby</h1>
-              <input type="text" id="username-join" class="input-field" placeholder="Enter Username">
-              <input type="text" id="lobby-code-input" class="input-field" placeholder="Enter 8-Digit Code">
-              <button id="join-lobby-btn" class="btn">Join</button>
-              <button id="back-to-main-btn" class="btn btn-secondary">Back</button>
-        </div>
-
         <div id="loading-view" class="ui-view hidden">
             <h1 id="loading-title">Creating Lobby...</h1>
             <p id="loading-code-display" style="font-size: 1.5rem; margin-bottom: 25px;"></p>
@@ -493,8 +612,9 @@
         </div>
     </div>
 
-    <div id="message-box" class="hidden">
+    <div id="message-box">
         <div id="message-box-content">
+            <h2 id="message-title"></h2>
             <p id="message-text"></p>
             <button id="message-box-ok" class="btn">OK</button>
         </div>
@@ -505,7 +625,7 @@
         let engine, world, runner;
         const players = new Map();
         const gameObjects = new Map();
-        const worldWidth = 50000;
+        const worldWidth = 100000;
         const worldHeight = 10000;
         let isTransformed = false;
         let animationInterval;
@@ -522,8 +642,7 @@
         const worldContainer = document.getElementById('world-container');
         const offScreenIndicatorsContainer = document.getElementById('off-screen-indicators');
         const fadeOverlay = document.getElementById('fade-overlay');
-        const loginView = document.getElementById('login-view');
-        const joinView = document.getElementById('join-view');
+        const menuView = document.getElementById('menu-view');
         const loadingView = document.getElementById('loading-view');
         const gameUi = document.getElementById('game-ui');
         const leaveLobbyBtn = document.getElementById('leave-lobby-btn');
@@ -532,27 +651,24 @@
         const mobileControls = document.getElementById('mobile-controls');
         const staminaBar = document.getElementById('stamina-bar');
 
-        const usernameInput = document.getElementById('username');
-        const usernameJoinInput = document.getElementById('username-join');
-        const lobbyCodeInput = document.getElementById('lobby-code-input');
-        const createLobbyBtn = document.getElementById('create-lobby-btn');
-        const showJoinViewBtn = document.getElementById('show-join-view-btn');
-        const joinLobbyBtn = document.getElementById('join-lobby-btn');
-        const backToMainBtn = document.getElementById('back-to-main-btn');
+        const newUsernameInput = document.getElementById('username-new');
+        const newLobbyCodeInput = document.getElementById('lobby-code-input-new');
+        const newJoinLobbyBtn = document.getElementById('join-lobby-btn-new');
+        const newCreateLobbyBtn = document.getElementById('create-lobby-btn-new');
 
-        createLobbyBtn.addEventListener('click', () => handleLobbyAction(true));
-        joinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
-        showJoinViewBtn.addEventListener('click', showJoinView);
-        backToMainBtn.addEventListener('click', showMainView);
+        newJoinLobbyBtn.addEventListener('click', () => handleLobbyAction(false));
+        newCreateLobbyBtn.addEventListener('click', () => handleLobbyAction(true));
+
         leaveLobbyBtn.addEventListener('click', leaveLobby);
         deleteLobbyBtn.addEventListener('click', leaveLobby);
         window.addEventListener('load', checkForSession);
         document.addEventListener('visibilitychange', handleVisibilityChange);
+        document.getElementById('message-box').style.display = 'none';
 
         function handleVisibilityChange() {
             if (document.visibilityState === 'visible' && peer && peer.disconnected) {
                 if (sessionStorage.getItem(SESSION_KEY)) {
-                     showMessage("You were disconnected. Attempting to reconnect...", () => {
+                    showMessage("Reconnecting...", "You were disconnected due to inactivity. We will try to reconnect you now.", () => {
                         window.location.reload();
                     });
                 }
@@ -566,9 +682,8 @@
                 isHost = sessionData.isHost;
                 lobbyCode = sessionData.lobbyCode;
                 myUsername = sessionData.username;
-                usernameInput.value = myUsername;
-                usernameJoinInput.value = myUsername;
-                lobbyCodeInput.value = sessionData.lobbyCode;
+                newUsernameInput.value = myUsername;
+                newLobbyCodeInput.value = sessionData.lobbyCode;
                 lockLoginInputs();
                 showLoadingScreen(isHost);
                 document.getElementById('loading-title').textContent = 'Reconnecting...';
@@ -578,29 +693,22 @@
             const params = new URLSearchParams(window.location.search);
             const urlLobbyCode = params.get('lobby');
             if (urlLobbyCode) {
-                lobbyCodeInput.value = urlLobbyCode;
-                showJoinView();
+                newLobbyCodeInput.value = urlLobbyCode;
             }
         }
 
         function lockLoginInputs() {
-            usernameInput.disabled = true;
-            usernameJoinInput.disabled = true;
-            lobbyCodeInput.disabled = true;
-            createLobbyBtn.disabled = true;
-            showJoinViewBtn.disabled = true;
-            joinLobbyBtn.disabled = true;
-            backToMainBtn.disabled = true;
+            newUsernameInput.disabled = true;
+            newLobbyCodeInput.disabled = true;
+            newJoinLobbyBtn.disabled = true;
+            newCreateLobbyBtn.disabled = true;
         }
 
         function unlockLoginInputs() {
-            usernameInput.disabled = false;
-            usernameJoinInput.disabled = false;
-            lobbyCodeInput.disabled = false;
-            createLobbyBtn.disabled = false;
-            showJoinViewBtn.disabled = false;
-            joinLobbyBtn.disabled = false;
-            backToMainBtn.disabled = false;
+            newUsernameInput.disabled = false;
+            newLobbyCodeInput.disabled = false;
+            newJoinLobbyBtn.disabled = false;
+            newCreateLobbyBtn.disabled = false;
         }
 
         function updateUrlWithLobbyCode(code) {
@@ -615,20 +723,22 @@
 
         function handleLobbyAction(isCreating) {
             isHost = isCreating;
-            myUsername = document.getElementById(isCreating ? 'username' : 'username-join').value.trim();
+            myUsername = newUsernameInput.value.trim();
             if (!myUsername) {
-                showMessage('Please enter a username.');
+                showMessage('Input Error', 'Please enter a username.', null, { style: 'danger' });
                 return;
             }
+
             if (isCreating) {
                 lobbyCode = generateLobbyCode();
             } else {
-                lobbyCode = document.getElementById('lobby-code-input').value.trim().toUpperCase();
+                lobbyCode = newLobbyCodeInput.value.trim().toUpperCase();
                 if (!lobbyCode || lobbyCode.length !== 8) {
-                    showMessage('Please enter a valid 8-digit lobby code.');
+                    showMessage('Input Error', 'Please enter a valid 8-digit lobby code.', null, { style: 'danger' });
                     return;
                 }
             }
+
             lockLoginInputs();
             const sessionData = { username: myUsername, lobbyCode, isHost };
             sessionStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
@@ -769,12 +879,12 @@
             sessionStorage.removeItem(SESSION_KEY);
             clearUrlParams();
             unlockLoginInputs();
-            showMainView();
+            menuView.classList.remove('hidden');
         }
 
         function handleJoinRejection() {
-            const codeToKeep = lobbyCodeInput.value;
-            const usernameToEdit = usernameJoinInput.value;
+            const codeToKeep = newLobbyCodeInput.value;
+            const usernameToEdit = newUsernameInput.value;
 
             if (peer) peer.destroy();
             connections.clear();
@@ -785,12 +895,12 @@
             unlockLoginInputs();
             loadingView.classList.add('hidden');
             
-            showJoinView();
+            menuView.classList.remove('hidden');
 
-            lobbyCodeInput.value = codeToKeep;
-            usernameJoinInput.value = usernameToEdit;
-            usernameJoinInput.focus();
-            usernameJoinInput.select();
+            newLobbyCodeInput.value = codeToKeep;
+            newUsernameInput.value = usernameToEdit;
+            newUsernameInput.focus();
+            newUsernameInput.select();
         }
 
         function handleData(data, peerId) {
@@ -808,9 +918,10 @@
                     createRespawnParticles(data.position);
                     break;
                 case 'name-taken':
-                    showMessage('This username is already taken. Please choose another.', handleJoinRejection);
+                    showMessage('Name Taken', 'This username is already in use. Please choose another.', handleJoinRejection, { style: 'danger' });
                     break;
                 case 'welcome':
+                    menuView.classList.add('hidden');
                     startGame(myUsername);
                     data.players.forEach(pInfo => {
                         if (pInfo.peerId !== myPeerId) {
@@ -1054,8 +1165,6 @@
             const viewportHeight = gameViewport.clientHeight;
             const centerX = viewportWidth / 2;
             const centerY = viewportHeight / 2;
-
-            // The radius of the "compass ring" is 45% of the smallest screen dimension
             const radius = Math.min(viewportWidth, viewportHeight) * 0.45;
 
             players.forEach(p => {
@@ -1073,10 +1182,7 @@
                     indicator.style.opacity = '1';
                     indicator.style.setProperty('--player-color', p.color);
 
-                    // Angle from my player to the other player
                     const angle = Math.atan2(p.body.position.y - myPlayer.body.position.y, p.body.position.x - myPlayer.body.position.x);
-
-                    // Position the indicator on the compass ring
                     const indicatorX = centerX + radius * Math.cos(angle);
                     const indicatorY = centerY + radius * Math.sin(angle);
 
@@ -1087,7 +1193,6 @@
                 }
             });
         }
-
 
         function updateStamina(deltaTime) {
             const myPlayer = players.get(myPeerId);
@@ -1285,27 +1390,53 @@
                 animTimer += loopTime;
                 for (const player of players.values()) {
                     if (!player.body || player.isTransformed) continue;
-                    const speed = Vector.magnitude(player.body.velocity);
-                    player.isWalking = speed > 0.5;
+
+                    // More accurate state detection
+                    player.isWalking = player.onGround && Math.abs(player.body.velocity.x) > 0.5;
                     player.isIdle = player.onGround && !player.isWalking;
+
                     const spriteWrapper = player.element.querySelector('.player-sprite-wrapper');
                     if (!spriteWrapper) continue;
                     spriteWrapper.style.transform = `rotateY(${player.direction === 'left' ? 180 : 0}deg)`;
+                    
                     const sprites = player.element.querySelectorAll('.player-sprite');
                     if (sprites.length < 2) continue;
-                    let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
-                    const frameDuration = 1000 / currentFps;
-                    if (animTimer >= frameDuration) {
-                        if (player.isWalking || player.isSprinting) {
-                            walkFrame = (walkFrame + 1) % 4;
+                    
+                    let currentSpritePath;
+
+                    if (!player.onGround) {
+                        // In the air: use jump or fall sprite
+                        if (player.body.velocity.y < -0.1) {
+                            currentSpritePath = '../images/player-jump.png';
                         } else {
-                            idleFrame = (idleFrame + 1) % 2;
+                            currentSpritePath = '../images/player-fall.png';
                         }
-                        animTimer = 0;
+                    } else {
+                        // On the ground: use original animation logic for idle/walk/sprint
+                        let currentFps = player.isSprinting ? SPRINT_FPS : (player.isWalking ? WALK_FPS : IDLE_FPS);
+                        const frameDuration = 1000 / currentFps;
+                        
+                        if (animTimer >= frameDuration) {
+                            if (player.isWalking || player.isSprinting) {
+                                walkFrame = (walkFrame + 1) % 4;
+                            } else {
+                                idleFrame = (idleFrame + 1) % 2;
+                            }
+                            animTimer = 0; // Reset timer as in original implementation
+                        }
+                        
+                        if (player.isWalking || player.isSprinting) {
+                            currentSpritePath = `./images/player-walk${walkFrame + 1}.png`;
+                        } else {
+                            currentSpritePath = `./images/player-idle${idleFrame + 1}.png`;
+                        }
                     }
-                    let currentSpritePath = player.isSprinting || player.isWalking ? `./images/player-walk${walkFrame + 1}.png` : `./images/player-idle${idleFrame + 1}.png`;
+
+                    // Set the determined sprite
                     sprites[0].src = currentSpritePath;
                     sprites[1].src = currentSpritePath;
+                    
+                    // Original particle logic
                     if (!player.onGround && Math.abs(player.body.velocity.y) > 1 && player.peerId === myPeerId) {
                         broadcast({ type: 'glide-particle', position: player.body.position, direction: player.direction });
                         createWindParticle(player.body.position, player.direction, true);
@@ -1400,43 +1531,45 @@
             }, 1000);
         }
 
-        function showMessage(message, onOkCallback) {
-            document.getElementById('message-text').textContent = message;
+        // UPDATED: Now accepts a title and an options object for styling
+        function showMessage(title, message, onOkCallback, options = {}) {
             const messageBox = document.getElementById('message-box');
+            document.getElementById('message-title').textContent = title || 'Alert';
+            document.getElementById('message-text').textContent = message;
+            
             const okButton = document.getElementById('message-box-ok');
+            okButton.textContent = options.buttonText || 'OK';
+
+            // Reset classes and apply new style
+            okButton.className = 'btn';
+            if (options.style === 'danger') {
+                okButton.classList.add('btn-danger');
+            } else if (options.style === 'success') {
+                okButton.classList.add('btn-success');
+            }
             
             const newOkButton = okButton.cloneNode(true);
             okButton.parentNode.replaceChild(newOkButton, okButton);
 
             const closeAndCallback = () => {
-                messageBox.classList.add('hidden');
+                messageBox.classList.remove('visible');
+                messageBox.style.display = 'none';
                 if (onOkCallback) {
                     onOkCallback();
                 }
             };
             
             newOkButton.addEventListener('click', closeAndCallback, { once: true });
-
-            messageBox.classList.remove('hidden');
+            
+            messageBox.style.display = 'flex';
+            setTimeout(() => messageBox.classList.add('visible'), 10);
         }
 
         function showLoadingScreen(isCreating) {
-            loginView.classList.add('hidden');
-            joinView.classList.add('hidden');
+            menuView.classList.add('hidden');
             loadingView.classList.remove('hidden');
             document.getElementById('loading-title').textContent = isCreating ? 'Creating Lobby...' : 'Joining Lobby...';
             document.getElementById('loading-code-display').textContent = lobbyCode || '';
-        }
-
-        function showJoinView() {
-            loginView.classList.add('hidden');
-            joinView.classList.remove('hidden');
-            usernameJoinInput.value = usernameInput.value;
-        }
-
-        function showMainView() {
-            loginView.classList.remove('hidden');
-            joinView.classList.add('hidden');
         }
 
         function updateLobbyControls() {
@@ -1448,7 +1581,7 @@
 
         function handleError(err) {
             console.error('PeerJS error:', err);
-            showMessage(`Connection error: ${err.type}. Could not find lobby or connection failed.`, leaveLobby);
+            showMessage('Connection Error', `Error: ${err.type}. Could not find lobby or the connection failed.`, leaveLobby, { style: 'danger' });
         }
 
         function generateLobbyCode() {
